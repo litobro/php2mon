@@ -1,8 +1,30 @@
 import asyncpg
+import pytest
 from datetime import datetime, timezone
 
 from php2mon.feeds.base import Collector, Observation
-from php2mon.feeds.runner import run_once, Context
+from php2mon.feeds.runner import run_once, Context, build_scheduler
+
+
+@pytest.fixture(autouse=True)
+async def _clean_test_rows():
+    import os
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        yield
+        return
+    async def clean():
+        conn = await asyncpg.connect(url)
+        try:
+            await conn.execute("DELETE FROM feed_observations WHERE source='test'")
+            await conn.execute("DELETE FROM collector_status WHERE source='test'")
+        except asyncpg.UndefinedTableError:
+            pass
+        finally:
+            await conn.close()
+    await clean()
+    yield
+    await clean()
 
 
 class OneShot(Collector):
@@ -49,3 +71,29 @@ async def test_run_once_records_failure_without_raising(database_url):
     assert row["consecutive_failures"] == 1 and "feed down" in row["last_error"]
     await pool.execute("DELETE FROM collector_status WHERE source='test'")
     await pool.close()
+
+
+async def test_run_once_records_bad_observation_without_raising(database_url):
+    pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2)
+    from php2mon.db import apply_schema
+    await apply_schema(pool)
+    ts = datetime(2026, 10, 21, 15, tzinfo=timezone.utc)
+    ctx = Context(client=None, pool=pool, settings=None)
+    bad = [Observation("test", "hits", {}, "not-a-number", ts)]
+    await run_once(OneShot(bad), ctx)  # must not raise
+    async with pool.acquire() as c:
+        row = await c.fetchrow("SELECT consecutive_failures FROM collector_status WHERE source='test'")
+        n = await c.fetchval("SELECT count(*) FROM feed_observations WHERE source='test'")
+    assert row["consecutive_failures"] == 1 and n == 0
+    await pool.close()
+
+
+async def test_build_scheduler_jobs_are_scheduled():
+    c = OneShot()
+    ctx = Context(client=None, pool=None, settings=None)
+    sched = build_scheduler([c], ctx)
+    sched.start(paused=True)
+    try:
+        assert sched.get_job(c.name).next_run_time is not None
+    finally:
+        sched.shutdown(wait=False)
