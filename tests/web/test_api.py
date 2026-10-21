@@ -21,18 +21,25 @@ async def seeded(database_url):
             "TRUNCATE sensor_hits, feed_observations, collector_status, claims RESTART IDENTITY"
         )
 
-        async def hit(ts, cc, asn, sigs):
+        # Anchor hit timestamps to the DB clock (now()) rather than an
+        # import-time constant, so the "current hour" assertions can't
+        # straddle the hour boundary when CI runs a few minutes past :00.
+        async def hit(ago, cc, asn, sigs):
+            # asyncpg encodes a timedelta as an interval; subtract from the DB
+            # clock so timestamps are anchored to now(), not an import-time value.
             await c.execute(
                 """INSERT INTO sensor_hits (ts, src_ip, country, asn, asn_name, method, path,
                    body_bytes, multipart_parts, sess_len, resp_status, signatures)
-                   VALUES ($1,'203.0.113.9',$2,$3,'AS-X','POST','/x',0,0,0,200,$4)""",
-                ts, cc, asn, sigs,
+                   VALUES (now() - $1::interval,'203.0.113.9',$2,$3,'AS-X','POST','/x',0,0,0,200,$4)""",
+                ago, cc, asn, sigs,
             )
 
-        await hit(NOW - timedelta(minutes=5), "US", 64500, ["mp-large"])
-        await hit(NOW - timedelta(minutes=6), "US", 64500, ["oom-repeat", "scan"])
-        await hit(NOW - timedelta(minutes=7), "DE", 64501, ["scan"])
-        await hit(NOW - timedelta(days=3), "CN", 64502, ["sess-repeat"])
+        # Three "recent" hits near now() (always in the current clock hour and
+        # within 24h); one 3 days old for the pre/post-patch delta tests.
+        await hit(timedelta(seconds=0), "US", 64500, ["mp-large"])
+        await hit(timedelta(seconds=1), "US", 64500, ["oom-repeat", "scan"])
+        await hit(timedelta(seconds=2), "DE", 64501, ["scan"])
+        await hit(timedelta(days=3), "CN", 64502, ["sess-repeat"])
         for metric, v, d in (
             ("php_hosts_fixed", 10, "{}"), ("php_hosts_vulnerable", 90, "{}"),
             ("l7_attacks", 5, "{}"), ("kev_listed", 1, '{"cve":"CVE-2026-0001"}'),
