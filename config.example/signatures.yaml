@@ -1,0 +1,27 @@
+# Example signature rules. The real deployment uses different ids and
+# thresholds that are not published.
+rules:
+  - id: multipart-large
+    label: Large multipart POST
+    confidence: likely
+    when:
+      method: POST
+      content_type_prefix: multipart/form-data
+      body_bytes_min: 2097152
+  - id: session-oversize
+    label: Oversized PHPSESSID cookie
+    confidence: likely
+    when:
+      sess_len_min: 256
+  - id: memory-repeat
+    label: Repeated memory-pressure requests from one source
+    confidence: exploit
+    when:
+      resp_status: 500
+      repeats_min: 5
+      window_seconds: 600
+  - id: php-probe
+    label: Request for a PHP path
+    confidence: probe
+    when:
+      path_contains: ".php"
