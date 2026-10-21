@@ -1,0 +1,24 @@
+# Example decoy persona. The real deployment uses a different file that is
+# not published. Every field here is a placeholder.
+server: "Apache"
+x_powered_by: "PHP/8.3.0"
+session_cookie: PHPSESSID
+memory_trigger:
+  min_body_bytes: 2097152
+  multipart_only: true
+pages:
+  "/": |
+    <!DOCTYPE html>
+    <html><head><title>Example</title></head>
+    <body><h1>It works!</h1></body></html>
+  "/index.php": |
+    <!DOCTYPE html>
+    <html><head><title>Example</title></head>
+    <body><h1>It works!</h1></body></html>
+not_found: |
+  <!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+  <html><head><title>404 Not Found</title></head>
+  <body><h1>Not Found</h1><p>The requested URL was not found on this server.</p></body></html>
+fatal: |
+  <br />
+  <b>Fatal error</b>:  Allowed memory size of 134217728 bytes exhausted (tried to allocate {bytes} bytes) in <b>Unknown</b> on line <b>0</b><br />
