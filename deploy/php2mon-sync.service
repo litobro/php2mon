@@ -1,0 +1,8 @@
+[Unit]
+Description=php2mon git and image sync
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/php2mon/deploy/sync.sh

@@ -22,3 +22,18 @@ Data credits: SANS Internet Storm Center (CC BY-NC-SA 4.0), Cloudflare Radar
     uv run pytest -q
 
 Integration tests that need Postgres run only when `DATABASE_URL` is set.
+
+## Running the stack
+
+    cp config.example/.env.example .env   # edit POSTGRES_PASSWORD
+    docker compose up -d
+
+The sensor listens on 80 and 443. Point `CONFIG_DIR` in `.env` at a directory
+containing `persona.yaml`, `signatures.yaml`, and optionally `geoip/*.mmdb`.
+
+## Deployment
+
+`deploy/cloud-init.yaml` provisions an Ubuntu 24.04 host that clones this repo
+and a private config repo, then runs `deploy/sync.sh` every five minutes to
+pull changes and restart what changed. Images are built by CI and published to
+`ghcr.io/litobro/php2mon-sensor`.

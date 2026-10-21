@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: php2mon
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: php2mon
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U php2mon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  sensor-http:
+    image: ghcr.io/litobro/php2mon-sensor:latest
+    build:
+      context: .
+      dockerfile: docker/sensor.Dockerfile
+    environment: &sensor-env
+      CONFIG_DIR: /config
+      DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
+      PORT: "8080"
+    volumes:
+      - "${CONFIG_DIR:-./config.example}:/config:ro"
+    ports:
+      - "80:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sensor-https:
+    image: ghcr.io/litobro/php2mon-sensor:latest
+    build:
+      context: .
+      dockerfile: docker/sensor.Dockerfile
+    environment:
+      <<: *sensor-env
+      PORT: "8443"
+      TLS_DIR: /tls
+      TLS_CN: "${TLS_CN:-localhost}"
+    volumes:
+      - "${CONFIG_DIR:-./config.example}:/config:ro"
+      - tlsdata:/tls
+    ports:
+      - "443:8443"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  tlsdata:

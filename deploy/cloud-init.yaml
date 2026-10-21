@@ -1,0 +1,33 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - unattended-upgrades
+write_files:
+  - path: /root/.ssh/php2mon_deploy
+    permissions: "0600"
+    encoding: b64
+    content: __DEPLOY_KEY_B64__
+  - path: /root/.ssh/config
+    permissions: "0600"
+    content: |
+      Host github.com
+        IdentityFile /root/.ssh/php2mon_deploy
+        IdentitiesOnly yes
+        StrictHostKeyChecking accept-new
+  - path: /etc/apt/apt.conf.d/52php2mon-unattended
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+runcmd:
+  - systemctl enable --now docker
+  - git clone -q git@github.com:litobro/php2mon-private.git /opt/php2mon-private
+  - git clone -q https://github.com/litobro/php2mon.git /opt/php2mon
+  - ln -sf /opt/php2mon-private/config/.env /opt/php2mon/.env
+  - cp /opt/php2mon/deploy/php2mon-sync.service /opt/php2mon/deploy/php2mon-sync.timer /etc/systemd/system/
+  - systemctl daemon-reload
+  - systemctl enable --now php2mon-sync.timer
+  - systemctl start php2mon-sync.service

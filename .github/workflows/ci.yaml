@@ -26,3 +26,25 @@ jobs:
       - run: uv run pytest -q
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/php2mon
+  build:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/sensor.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/litobro/php2mon-sensor:latest
+            ghcr.io/litobro/php2mon-sensor:${{ github.sha }}
