@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 
 # Signatures that indicate exploit-confidence traffic (confidence exploit/likely).
+# Keep in sync with the exploit/likely rule ids in the private config/signatures.yaml (source of truth); dashboard exploit counts depend on them.
 EXPLOIT_SIGNATURES = ["mp-large", "mp-large-repeat", "oom-repeat", "sess-repeat"]
 
 WINDOWS = {"24h": 24, "7d": 168, "30d": 720}

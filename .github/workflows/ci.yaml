@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
       - run: uv run pytest -q
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/php2mon
