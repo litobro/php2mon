@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 import asyncpg
 import pytest
 
@@ -86,3 +89,130 @@ async def test_postgres_roundtrip(database_url):
     assert row["path"] == "/integration"
     assert row["signatures"] == ["php-probe"]
     assert row["head"] == "hi"
+
+
+class FlakyWriter(PostgresWriter):
+    """Writer whose _insert is scripted by a callable."""
+
+    def __init__(self, impl, **kw):
+        super().__init__("postgresql://unused", **kw)
+        self.inserted = []
+        self._impl = impl
+
+    async def _insert(self, rows):
+        await self._impl(self, rows)
+
+
+async def _put_paths(w, paths):
+    for p in paths:
+        await w.put(_hit(p))
+
+
+def test_nul_bytes_sanitized():
+    h = build_hit(src_ip="203.0.113.1", method="GET", path="/p\x00q", headers=[("X-Evil", "a\x00b")], body_bytes=0, multipart_parts=0, body_head=b"\x00zz")
+    row = hit_row(h)
+    assert "\x00" not in row[6]
+    assert "\\u0000" not in row[15]
+    assert "\x00" not in row[15]
+
+
+async def test_poison_row_quarantined():
+    async def impl(w, rows):
+        if any(r[6] == "/bad" for r in rows):
+            raise ValueError("bad row")
+        w.inserted.extend(rows)
+
+    w = FlakyWriter(impl)
+    await _put_paths(w, ["/a", "/bad", "/c"])
+    assert await w.flush() is True
+    assert [r[6] for r in w.inserted] == ["/a", "/c"]
+    assert w.rejected == 1
+    assert len(w._buffer) == 0
+
+
+async def test_transient_error_requeues_whole_batch():
+    state = {"n": 0}
+
+    async def impl(w, rows):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise OSError("down")
+        w.inserted.extend(rows)
+
+    w = FlakyWriter(impl)
+    await _put_paths(w, ["/a", "/b", "/c"])
+    assert await w.flush() is False
+    assert [r[6] for r in w._buffer] == ["/a", "/b", "/c"]
+    assert w.rejected == 0
+    assert await w.flush() is True
+    assert [r[6] for r in w.inserted] == ["/a", "/b", "/c"]
+
+
+async def test_cancel_during_insert_requeues_batch():
+    gate = asyncio.Event()
+
+    async def impl(w, rows):
+        await gate.wait()
+
+    w = FlakyWriter(impl)
+    await _put_paths(w, ["/a", "/b", "/c"])
+    task = asyncio.create_task(w.flush())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(w._buffer) == 3
+    assert w._buffer[0][6] == "/a"
+
+
+async def test_schema_failure_leaves_no_pool(monkeypatch):
+    closed = []
+
+    class FakePool:
+        async def close(self):
+            closed.append(True)
+
+    async def fake_create_pool(*a, **kw):
+        return FakePool()
+
+    async def bad_schema(pool):
+        raise RuntimeError("schema boom")
+
+    monkeypatch.setattr(asyncpg, "create_pool", fake_create_pool)
+    monkeypatch.setattr("php2mon.sensor.writer.apply_schema", bad_schema)
+    w = PostgresWriter("postgresql://x")
+    with pytest.raises(RuntimeError):
+        await w._insert([])
+    assert w._pool is None
+    assert closed == [True]
+
+
+async def test_put_never_raises_on_bad_ip():
+    w = RecordingWriter()
+    h = _hit()
+    h.src_ip = "not-an-ip"
+    await w.put(h)
+    assert w.rejected == 1
+    assert len(w._buffer) == 0
+
+
+async def test_failure_logging_is_rate_limited(caplog):
+    async def impl(w, rows):
+        raise OSError("down")
+
+    w = FlakyWriter(impl)
+    await _put_paths(w, ["/a"])
+    with caplog.at_level(logging.WARNING, logger="php2mon.sensor.writer"):
+        for _ in range(130):
+            assert await w.flush() is False
+    assert len([r for r in caplog.records if "insert failed" in r.getMessage()]) == 3
+
+
+async def test_start_twice_is_idempotent():
+    w = RecordingWriter(flush_interval=10)
+    await w.start()
+    first = w._task
+    await w.start()
+    assert w._task is first
+    await w.stop()
