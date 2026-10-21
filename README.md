@@ -15,3 +15,10 @@ Status: design complete, implementation starting.
 
 Data credits: SANS Internet Storm Center (CC BY-NC-SA 4.0), Cloudflare Radar
 (CC BY-NC 4.0), DB-IP lite (CC BY 4.0).
+
+## Development
+
+    uv sync
+    uv run pytest -q
+
+Integration tests that need Postgres run only when `DATABASE_URL` is set.
