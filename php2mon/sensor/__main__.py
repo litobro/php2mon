@@ -43,7 +43,10 @@ def main() -> None:
         port=int(os.environ.get("PORT", "8080")),
         ssl_certfile=os.environ.get("SSL_CERTFILE"),
         ssl_keyfile=os.environ.get("SSL_KEYFILE"),
+        http="h11",
+        date_header=False,
         server_header=False,
+        h11_max_incomplete_event_size=65536,
         access_log=False,
         proxy_headers=False,
     )

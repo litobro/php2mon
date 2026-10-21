@@ -5,23 +5,47 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+from email.utils import formatdate
 from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.requests import ClientDisconnect, Request
-from starlette.responses import Response
 from starlette.routing import Route
 
 from php2mon.sensor.config import ConfigWatcher
 from php2mon.sensor.geoip import GeoLookup
 from php2mon.sensor.hits import BODY_HEAD_CAP, MultipartCounter, build_hit
 from php2mon.sensor.ratelimit import RateLimiter
-from php2mon.sensor.responder import respond
+from php2mon.sensor.responder import Reply, respond
 from php2mon.sensor.writer import HitSink
 
 log = logging.getLogger(__name__)
 
 DEFAULT_BODY_CAP = 32 * 1024 * 1024
+
+
+# Apache's order. Names are sent exactly as written here: h11 keeps header case.
+RESPONSE_HEADER_ORDER = (
+    "Date",
+    "Server",
+    "X-Powered-By",
+    "Set-Cookie",
+    "Expires",
+    "Cache-Control",
+    "Pragma",
+    "Accept-Ranges",
+    "Content-Length",
+    "Content-Type",
+)
+
+
+def wire_headers(headers: dict[str, str], content_length: int) -> list[tuple[bytes, bytes]]:
+    values = {**headers, "Date": formatdate(usegmt=True), "Content-Length": str(content_length)}
+    return [
+        (name.encode("latin-1"), values[name].encode("latin-1"))
+        for name in RESPONSE_HEADER_ORDER
+        if name in values
+    ]
 
 
 class _AnyMethod:
@@ -31,8 +55,13 @@ class _AnyMethod:
         self._handler = handler
 
     async def __call__(self, scope, receive, send) -> None:
-        response = await self._handler(Request(scope, receive))
-        await response(scope, receive, send)
+        reply = await self._handler(Request(scope, receive))
+        await send({
+            "type": "http.response.start",
+            "status": reply.status,
+            "headers": wire_headers(reply.headers, len(reply.body)),
+        })
+        await send({"type": "http.response.body", "body": b"" if scope["method"] == "HEAD" else reply.body})
 
 
 def host_and_port(request: Request, default_host: str) -> tuple[str, int]:
@@ -58,7 +87,7 @@ def create_app(
 ) -> Starlette:
     watcher = ConfigWatcher(config_dir)
 
-    async def handle(request: Request) -> Response:
+    async def handle(request: Request) -> Reply:
         try:
             watcher.maybe_reload()
             persona, evaluator = watcher.persona, watcher.evaluator
@@ -101,22 +130,18 @@ def create_app(
             if limiter is not None and not limiter.allow(hit.src_ip):
                 hit.detail_kept = False
             await sink.put(hit)
-            if request.method == "HEAD":
-                headers = dict(reply.headers)
-                headers["Content-Length"] = str(len(reply.body))
-                return Response(b"", status_code=reply.status, headers=headers)
-            return Response(reply.body, status_code=reply.status, headers=reply.headers)
+            return reply
         except Exception:
             log.exception("sensor handler failed")
             persona = watcher.persona
-            return Response(
-                persona.fatal.replace("{bytes}", "0").encode(),
-                status_code=500,
-                headers={
+            return Reply(
+                500,
+                {
                     "Server": persona.server,
                     "X-Powered-By": persona.x_powered_by,
                     "Content-Type": "text/html; charset=UTF-8",
                 },
+                persona.fatal.replace("{bytes}", "0").encode(),
             )
 
     return Starlette(routes=[Route("/{path:path}", _AnyMethod(handle))], lifespan=lifespan)

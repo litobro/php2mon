@@ -170,3 +170,15 @@ async def test_large_multipart_to_missing_path_is_404(persona):
     async with _client(create_app(EXAMPLE, sink)) as c:
         r = await c.post("/nope", content=body, headers={"Content-Type": "multipart/form-data; boundary=b"})
     assert r.status_code == 404
+
+
+async def test_fallback_500_sends_headers_in_order(persona):
+    class BadSink:
+        async def put(self, hit):
+            raise RuntimeError("boom")
+
+    async with _client(create_app(EXAMPLE, BadSink())) as c:
+        r = await c.get("/")
+    names = [name for name, _ in r.headers.raw]
+    assert names == [b"Date", b"Server", b"X-Powered-By", b"Content-Length", b"Content-Type"]
+    assert r.headers["content-length"] == str(len(r.content))
