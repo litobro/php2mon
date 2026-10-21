@@ -26,13 +26,23 @@ class ConfigWatcher:
         self._min_interval = min_interval
         self._clock = clock
         self._last_check = clock()
-        self._stamp: tuple[int, int] | None = None
+        self._stamp: tuple[tuple[int, int, int], tuple[int, int, int]] | None = None
+        self._last_error: str | None = None
         self.persona: Persona
         self.evaluator: Evaluator
         self.reload(force=True)
 
-    def _current_stamp(self) -> tuple[int, int]:
-        return (self._persona_path.stat().st_mtime_ns, self._rules_path.stat().st_mtime_ns)
+    def _current_stamp(self) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+        def one(path: Path) -> tuple[int, int, int]:
+            st = path.stat()
+            return (st.st_mtime_ns, st.st_ino, st.st_size)
+
+        return (one(self._persona_path), one(self._rules_path))
+
+    def _log_once(self, message: str) -> None:
+        if message != self._last_error:
+            log.error(message)
+            self._last_error = message
 
     def reload(self, force: bool = False) -> bool:
         stamp = self._current_stamp()
@@ -44,15 +54,16 @@ class ConfigWatcher:
         except Exception as exc:
             if force:
                 raise
-            log.error("config reload failed, keeping previous config: %s", exc)
+            self._log_once(f"config reload failed, keeping previous config: {exc}")
             self._stamp = stamp
             return False
-        self.persona = persona
         if self._stamp is None:
             self.evaluator = Evaluator(rules, clock=self._clock)
         else:
             self.evaluator.replace_rules(rules)
+        self.persona = persona
         self._stamp = stamp
+        self._last_error = None
         log.info("config loaded from %s", self._persona_path.parent)
         return True
 
@@ -63,5 +74,5 @@ class ConfigWatcher:
         self._last_check = now
         try:
             self.reload()
-        except FileNotFoundError as exc:
-            log.error("config file missing, keeping previous config: %s", exc)
+        except Exception as exc:
+            self._log_once(f"config reload failed, keeping previous config: {exc}")

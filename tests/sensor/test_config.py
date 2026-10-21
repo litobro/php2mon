@@ -65,3 +65,27 @@ def test_maybe_reload_rate_limits_stat_calls(cfg):
     now[0] += 2.5
     w.maybe_reload()
     assert w.persona.x_powered_by == "PHP/7.4.0"
+
+
+def test_maybe_reload_survives_missing_file(cfg, caplog):
+    w = ConfigWatcher(cfg, min_interval=0, clock=lambda: 0.0)
+    old = w.persona.server
+    (cfg / "signatures.yaml").unlink()
+    with caplog.at_level(logging.ERROR):
+        w.maybe_reload()
+        w.maybe_reload()
+        w.maybe_reload()
+    assert w.persona.server == old
+    assert caplog.text.count("keeping previous") == 1
+
+
+def test_maybe_reload_survives_unreadable_file(cfg, caplog, monkeypatch):
+    w = ConfigWatcher(cfg, min_interval=0, clock=lambda: 0.0)
+
+    def boom(self, *a, **k):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(Path, "stat", boom)
+    with caplog.at_level(logging.ERROR):
+        w.maybe_reload()
+    assert "denied" in caplog.text
