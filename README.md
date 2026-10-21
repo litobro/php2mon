@@ -40,6 +40,11 @@ the decoy's 80 and 443. Create a tunnel in Cloudflare Zero Trust, route a
 public hostname to `http://dashboard:8000`, set `TUNNEL_TOKEN` in `.env`, and
 enable the tunnel service with `COMPOSE_PROFILES=tunnel` in `.env`.
 
+The dashboard is reachable ONLY through the tunnel; no inbound port is opened
+on the VM. The private `.env` must KEEP `COMPOSE_PROFILES=tunnel` for the
+tunnel to stay up across syncs (if removed, a sync stops cloudflared). Enabling
+the profile without a valid `TUNNEL_TOKEN` makes cloudflared crash-loop.
+
 ## Deployment
 
 `deploy/cloud-init.yaml` provisions an Ubuntu 24.04 host that clones this repo
