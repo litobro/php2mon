@@ -32,7 +32,11 @@ class GeoLookup:
             if not path.exists():
                 log.warning("geoip file %s not found; enrichment disabled for it", path)
                 return None
-            return maxminddb.open_database(str(path))
+            try:
+                return maxminddb.open_database(str(path))
+            except Exception as exc:
+                log.warning("geoip file %s unreadable; enrichment disabled for it: %s", path, exc)
+                return None
 
         return cls(open_if_present(COUNTRY_FILE), open_if_present(ASN_FILE))
 

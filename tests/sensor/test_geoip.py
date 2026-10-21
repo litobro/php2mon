@@ -48,3 +48,15 @@ def test_from_dir_with_missing_files(tmp_path):
     hit = _hit()
     geo.enrich(hit)
     assert hit.country is None
+
+
+def test_from_dir_with_corrupt_file(tmp_path, caplog):
+    import logging
+
+    (tmp_path / "dbip-country-lite.mmdb").write_bytes(b"not an mmdb")
+    with caplog.at_level(logging.WARNING):
+        geo = GeoLookup.from_dir(tmp_path)
+    hit = _hit()
+    geo.enrich(hit)
+    assert hit.country is None
+    assert "unreadable" in caplog.text

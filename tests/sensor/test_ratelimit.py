@@ -18,3 +18,31 @@ def test_prune_drops_stale_buckets():
     now[0] += 120
     rl._prune(now[0])
     assert rl._buckets == {}
+
+
+def test_ipv6_keyed_by_64(monkeypatch):
+    rl = RateLimiter(per_minute=1, clock=lambda: 0.0)
+    assert rl.allow("2001:db8::1") is True
+    assert rl.allow("2001:db8::2") is False
+    assert rl.allow("2001:db8:1::1") is True
+
+
+def test_bucket_cap_evicts_oldest(monkeypatch):
+    monkeypatch.setattr("php2mon.sensor.ratelimit.MAX_BUCKETS", 3)
+    rl = RateLimiter(per_minute=1, clock=lambda: 0.0)
+    for i in range(4):
+        rl.allow(f"ip{i}")
+    assert len(rl._buckets) == 3
+    assert "ip0" not in rl._buckets
+    assert rl.allow("ip0") is True
+
+
+def test_prune_runs_via_allow():
+    now = [0.0]
+    rl = RateLimiter(per_minute=1, clock=lambda: now[0])
+    for i in range(5):
+        rl.allow(f"ip{i}")
+    rl._calls = 9_999
+    now[0] = 120.0
+    rl.allow("fresh")
+    assert rl._buckets.keys() == {"fresh"}
