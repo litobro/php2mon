@@ -88,3 +88,17 @@ def test_to_detail_is_json_safe():
     )
     text = json.dumps(hit.to_detail())
     assert "headers" in text and "body_head" in text
+
+
+def test_sess_len_measured_before_header_truncation():
+    hit = build_hit(
+        src_ip="203.0.113.9",
+        method="GET",
+        path="/",
+        headers=[("Cookie", "a=1; PHPSESSID=" + "s" * 5000)],
+        body_bytes=0,
+        multipart_parts=0,
+        body_head=b"",
+    )
+    assert hit.sess_len == 5000
+    assert len(hit.headers["cookie"]) == HEADER_VALUE_CAP

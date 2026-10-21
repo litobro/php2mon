@@ -88,9 +88,11 @@ def build_hit(
 ) -> HitRecord:
     names: list[str] = []
     hdrs: dict[str, str] = {}
+    raw: dict[str, str] = {}
     for key, value in headers:
         lower = key.lower()
         names.append(lower)
+        raw[lower] = value
         hdrs[lower] = value[:HEADER_VALUE_CAP]
     return HitRecord(
         ts=now or datetime.now(timezone.utc),
@@ -102,7 +104,7 @@ def build_hit(
         content_type=hdrs.get("content-type"),
         body_bytes=body_bytes,
         multipart_parts=multipart_parts,
-        sess_len=session_length(hdrs.get("cookie"), session_cookie),
+        sess_len=session_length(raw.get("cookie"), session_cookie),
         header_names=names,
         headers=hdrs,
         body_head=body_head[:BODY_HEAD_CAP],
