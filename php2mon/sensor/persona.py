@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MemoryTrigger(BaseModel):
@@ -26,6 +26,16 @@ class Persona(BaseModel):
     not_found: str
     fatal: str
     memory_trigger: MemoryTrigger = Field(default_factory=MemoryTrigger)
+
+    @field_validator("server", "x_powered_by", "server_name")
+    @classmethod
+    def _latin1(cls, value: str) -> str:
+        # These go out as raw header bytes or into the 404 page; reject them at load, not per request.
+        try:
+            value.encode("latin-1")
+        except UnicodeEncodeError:
+            raise ValueError("must be encodable as latin-1") from None
+        return value
 
 
 def parse_persona(data: bytes | str) -> Persona:

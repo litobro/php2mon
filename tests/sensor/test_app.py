@@ -182,3 +182,28 @@ async def test_fallback_500_sends_headers_in_order(persona):
     names = [name for name, _ in r.headers.raw]
     assert names == [b"Date", b"Server", b"X-Powered-By", b"Content-Length", b"Content-Type"]
     assert r.headers["content-length"] == str(len(r.content))
+
+
+async def test_non_ascii_port_in_host_is_recorded():
+    sink = MemorySink()
+    async with _client(create_app(EXAMPLE, sink)) as c:
+        r = await c.get("/", headers=[(b"host", b"x:\xb2")])
+    assert r.status_code == 200
+    assert len(sink.hits) == 1
+    assert sink.hits[0].resp_status == 200
+
+
+async def test_handler_error_still_records_hit(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("responder broke")
+
+    monkeypatch.setattr("php2mon.sensor.app.respond", boom)
+    sink = MemorySink()
+    async with _client(create_app(EXAMPLE, sink)) as c:
+        r = await c.get("/?a=1")
+    assert r.status_code == 500
+    assert len(sink.hits) == 1
+    hit = sink.hits[0]
+    assert hit.resp_status == 500
+    assert "handler-error" in hit.signatures
+    assert hit.path == "/" and hit.query == "a=1"

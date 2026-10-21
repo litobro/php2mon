@@ -68,7 +68,7 @@ def host_and_port(request: Request, default_host: str) -> tuple[str, int]:
     """The name and port Apache would print in its error pages, taken from the Host header."""
     raw = request.headers.get("host", "")
     name, sep, port = raw.rpartition(":")
-    if sep and port.isdigit():
+    if sep and port.isascii() and port.isdigit():
         host, port_num = name, int(port)
     else:
         host, port_num = raw, 443 if request.url.scheme == "https" else 80
@@ -88,12 +88,31 @@ def create_app(
 ) -> Starlette:
     watcher = ConfigWatcher(config_dir, state_dir=state_dir)
 
+    async def record_failed(request: Request, body_bytes: int) -> None:
+        """Best effort: keep a minimal row for a request the handler could not finish."""
+        try:
+            hit = build_hit(
+                src_ip=request.client.host if request.client else "0.0.0.0",
+                method=request.method,
+                path=request.url.path,
+                query=request.scope["query_string"].decode("latin-1"),
+                headers=request.headers.items(),
+                body_bytes=body_bytes,
+                multipart_parts=0,
+                body_head=b"",
+            )
+            hit.resp_status = 500
+            hit.signatures = ["handler-error"]
+            await sink.put(hit)
+        except Exception as exc:
+            log.warning("could not record failed request: %s", exc)
+
     async def handle(request: Request) -> Reply:
+        total = 0
         try:
             watcher.maybe_reload()
             persona, evaluator = watcher.persona, watcher.evaluator
             counter = MultipartCounter.from_content_type(request.headers.get("content-type"))
-            total = 0
             head = b""
             src_ip = request.client.host if request.client else "0.0.0.0"
             try:
@@ -134,6 +153,7 @@ def create_app(
             return reply
         except Exception:
             log.exception("sensor handler failed")
+            await record_failed(request, total)
             persona = watcher.persona
             return Reply(
                 500,
