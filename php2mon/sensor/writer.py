@@ -125,6 +125,10 @@ class PostgresWriter:
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
+        try:
+            await self._ensure_pool()
+        except Exception as exc:
+            log.warning("database not ready at startup, will retry: %s", exc)
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -206,7 +210,7 @@ class PostgresWriter:
                 raise
         return True
 
-    async def _insert(self, rows: list[tuple]) -> None:
+    async def _ensure_pool(self) -> asyncpg.Pool:
         if self._pool is None:
             try:
                 pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=2)
@@ -218,5 +222,9 @@ class PostgresWriter:
             except Exception as exc:
                 raise WriterSetupError(str(exc)) from exc
             self._pool = pool
-        async with self._pool.acquire() as conn:
+        return self._pool
+
+    async def _insert(self, rows: list[tuple]) -> None:
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn:
             await conn.executemany(INSERT_SQL, rows)

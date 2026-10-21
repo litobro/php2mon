@@ -266,3 +266,38 @@ async def test_per_row_path_resets_failure_counter():
     w._consecutive_failures = 5
     assert await w.flush() is True
     assert w._consecutive_failures == 0
+
+
+async def test_start_applies_schema_eagerly(monkeypatch):
+    calls = []
+
+    class FakePool:
+        async def close(self):
+            pass
+
+    pool = FakePool()
+
+    async def fake_create_pool(*a, **k):
+        return pool
+
+    async def fake_apply_schema(p):
+        calls.append(p)
+
+    monkeypatch.setattr("php2mon.sensor.writer.asyncpg.create_pool", fake_create_pool)
+    monkeypatch.setattr("php2mon.sensor.writer.apply_schema", fake_apply_schema)
+    w = PostgresWriter("postgresql://unused")
+    await w.start()
+    assert calls == [pool]
+    assert w._pool is pool
+    await w.stop()
+
+
+async def test_start_survives_db_down(monkeypatch):
+    async def fake_create_pool(*a, **k):
+        raise OSError("db down")
+
+    monkeypatch.setattr("php2mon.sensor.writer.asyncpg.create_pool", fake_create_pool)
+    w = PostgresWriter("postgresql://unused")
+    await w.start()
+    assert w._pool is None
+    await w.stop()

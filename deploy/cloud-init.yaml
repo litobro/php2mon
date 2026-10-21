@@ -1,4 +1,5 @@
 #cloud-config
+timezone: Etc/UTC
 package_update: true
 package_upgrade: true
 packages:
@@ -17,6 +18,7 @@ write_files:
       Host github.com
         IdentityFile /root/.ssh/php2mon_deploy
         IdentitiesOnly yes
+        BatchMode yes
         StrictHostKeyChecking accept-new
   - path: /etc/apt/apt.conf.d/52php2mon-unattended
     content: |
