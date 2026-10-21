@@ -4,7 +4,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends openssl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -u 10001 -d /app sensor \
-    && mkdir -p /app /tls /state && chown sensor /tls /state
+    && mkdir -p /app /tls /state /geoip && chown sensor /tls /state /geoip
 WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/usr/local UV_COMPILE_BYTECODE=1 PYTHONUNBUFFERED=1
 COPY pyproject.toml uv.lock ./
