@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -24,6 +25,10 @@ class GeoLookup:
     def __init__(self, country_reader: Reader | None = None, asn_reader: Reader | None = None) -> None:
         self._country = country_reader
         self._asn = asn_reader
+        # (path, mtime) per reader, populated by from_dir; empty for injected readers.
+        self._country_src: tuple[Path, float] | None = None
+        self._asn_src: tuple[Path, float] | None = None
+        self._directory: Path | None = None
 
     @classmethod
     def from_dir(cls, directory: Path) -> "GeoLookup":
@@ -38,7 +43,45 @@ class GeoLookup:
                 log.warning("geoip file %s unreadable; enrichment disabled for it: %s", path, exc)
                 return None
 
-        return cls(open_if_present(COUNTRY_FILE), open_if_present(ASN_FILE))
+        geo = cls(open_if_present(COUNTRY_FILE), open_if_present(ASN_FILE))
+        geo._directory = Path(directory)
+        geo._country_src = cls._stat(Path(directory) / COUNTRY_FILE)
+        geo._asn_src = cls._stat(Path(directory) / ASN_FILE)
+        return geo
+
+    @staticmethod
+    def _stat(path: Path) -> tuple[Path, float] | None:
+        try:
+            return (path, os.stat(path).st_mtime)
+        except OSError:
+            return None
+
+    def maybe_reopen(self) -> bool:
+        """Re-open readers whose mmdb file changed on disk. Returns True if any swapped."""
+        if self._directory is None:
+            return False
+        changed = False
+        for name, attr, src_attr in ((COUNTRY_FILE, "_country", "_country_src"),
+                                     (ASN_FILE, "_asn", "_asn_src")):
+            path = self._directory / name
+            new = self._stat(path)
+            if new is None or new == getattr(self, src_attr):
+                continue
+            try:
+                reader = maxminddb.open_database(str(path))
+            except Exception as exc:
+                log.warning("geoip reopen of %s failed; keeping previous reader: %s", path, exc)
+                continue
+            old = getattr(self, attr)
+            setattr(self, attr, reader)
+            setattr(self, src_attr, new)
+            changed = True
+            if old is not None and hasattr(old, "close"):
+                try:
+                    old.close()
+                except Exception:
+                    pass
+        return changed
 
     def enrich(self, hit: HitRecord) -> None:
         try:
