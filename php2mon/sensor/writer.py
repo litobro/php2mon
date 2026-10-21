@@ -215,7 +215,13 @@ class PostgresWriter:
             try:
                 pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=2)
                 try:
-                    await apply_schema(pool)
+                    try:
+                        await apply_schema(pool)
+                    except asyncpg.InsufficientPrivilegeError:
+                        log.warning(
+                            "schema not applied (insufficient privilege); "
+                            "assuming it is managed by dbinit"
+                        )
                 except BaseException:
                     await pool.close()
                     raise

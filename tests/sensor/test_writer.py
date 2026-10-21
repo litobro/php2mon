@@ -92,6 +92,31 @@ async def test_postgres_roundtrip(database_url):
     assert row["head"] == "hi"
 
 
+async def test_writer_works_as_sensor_role(database_url):
+    from php2mon.db import apply_schema
+    from php2mon.roles import apply_roles
+
+    pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2)
+    try:
+        await apply_schema(pool)
+        await apply_roles(pool, sensor_pw="s_pw", collector_pw="c_pw", dashboard_pw="d_pw")
+    finally:
+        await pool.close()
+    head, _, db = database_url.rpartition("/")
+    host = head.rpartition("@")[2]
+    w = PostgresWriter(f"postgresql://php2mon_sensor:s_pw@{host}/{db}", flush_interval=0.05)
+    await w.start()
+    await w.put(_hit("/as-sensor-role"))
+    await w.stop()
+    conn = await asyncpg.connect(database_url)
+    try:
+        n = await conn.fetchval("SELECT count(*) FROM sensor_hits WHERE path = '/as-sensor-role'")
+        await conn.execute("DELETE FROM sensor_hits WHERE path = '/as-sensor-role'")
+    finally:
+        await conn.close()
+    assert n == 1
+
+
 class FlakyWriter(PostgresWriter):
     """Writer whose _insert is scripted by a callable."""
 
