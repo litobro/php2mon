@@ -1,6 +1,7 @@
 """The four feed collectors: SANS ISC, Cloudflare Radar, CISA KEV, Shodan."""
 from __future__ import annotations
 import os
+import re
 from datetime import UTC, datetime
 
 from php2mon.feeds.base import Collector, Observation
@@ -20,10 +21,15 @@ def _setting(ctx, name: str) -> str | None:
     return val or None
 
 
+def _scrub(s: str) -> str:
+    """Redact API keys that may appear in URLs inside error text."""
+    return re.sub(r"key=\S+?(?=&|\s|$|['\")])", "key=REDACTED", s)
+
+
 async def _fetch(ctx, source: str, url: str, **kw):
     res = await fetch_json(ctx.client, url, **kw)
     if not res.ok:
-        raise RuntimeError(f"{source}: {res.error}")
+        raise RuntimeError(_scrub(f"{source}: {res.error}"))
     async with ctx.pool.acquire() as conn:
         await store_raw(conn, source, res.json)
     return res.json
@@ -36,9 +42,9 @@ class IscWebHoneypot(Collector):
 
     @classmethod
     def parse(cls, payload) -> list[Observation]:
-        summary = payload["webhoneypotsummary"]
+        summary = (payload or {}).get("webhoneypotsummary") or {}
         if isinstance(summary, list):
-            summary = summary[0]
+            summary = summary[0] if summary else {}
         ts = _hour_now()
         return [
             Observation(cls.name, f"isc_{k}", {}, float(summary[k]), ts)
@@ -62,11 +68,12 @@ class CloudflareRadar(Collector):
 
     @classmethod
     def parse(cls, payload) -> list[Observation]:
-        serie = payload["result"]["serie_0"]
+        serie = ((payload or {}).get("result") or {}).get("serie_0") or {}
         return [
             Observation(cls.name, "l7_attacks", {},
                         float(v), datetime.fromisoformat(t.replace("Z", "+00:00")))
-            for t, v in zip(serie["timestamps"], serie["values"])
+            for t, v in zip(serie.get("timestamps") or [], serie.get("values") or [])
+            if v is not None
         ]
 
     async def collect(self, ctx) -> list[Observation]:
@@ -87,15 +94,20 @@ class CisaKev(Collector):
 
     @classmethod
     def parse(cls, payload) -> list[Observation]:
-        listed = {v["cveID"]: v for v in payload.get("vulnerabilities", [])}
+        listed = {v["cveID"]: v for v in (payload or {}).get("vulnerabilities") or []
+                  if isinstance(v, dict) and "cveID" in v}
         ts = _hour_now()
         out = []
         for cve in TRACKED_CVES:
-            dims = {"cve": cve}
             entry = listed.get(cve)
-            if entry is not None and entry.get("dateAdded"):
-                dims["dateAdded"] = entry["dateAdded"]
-            out.append(Observation(cls.name, "kev_listed", dims, 1.0 if entry else 0.0, ts))
+            out.append(Observation(cls.name, "kev_listed", {"cve": cve}, 1.0 if entry else 0.0, ts))
+            added = (entry or {}).get("dateAdded")
+            if added:
+                try:
+                    epoch = datetime.fromisoformat(added).replace(tzinfo=UTC).timestamp()
+                except ValueError:
+                    continue
+                out.append(Observation(cls.name, "kev_date_added_epoch", {"cve": cve}, epoch, ts))
         return out
 
     async def collect(self, ctx) -> list[Observation]:
@@ -103,22 +115,29 @@ class CisaKev(Collector):
 
 
 def _vtuple(v: str) -> tuple[int, ...] | None:
-    try:
-        return tuple(int(p) for p in v.split("."))
-    except ValueError:
+    parts = []
+    for p in v.strip().split("."):
+        m = re.match(r"\d+", p)
+        if not m:
+            break
+        parts.append(int(m.group()))
+        if m.end() != len(p):
+            break  # non-numeric suffix ends the version
+    if not parts:
         return None
+    return tuple((parts + [0, 0, 0])[:3])
 
 
 def is_fixed(version: str) -> bool | None:
-    """True if at/above the fixed release of its branch; None if unparseable."""
+    """True if fixed, False if vulnerable, None if not a version at all."""
     t = _vtuple(version)
-    if t is None or len(t) < 3:
+    if t is None:
         return None
     fixed = sorted(_vtuple(f) for f in FIXED_VERSIONS)
     for f in fixed:
         if t[:2] == f[:2]:
             return t >= f
-    return t > fixed[-1]  # unlisted branch: newer than all fixed ones is fixed
+    return t[:2] > fixed[-1][:2]  # newer than every fixed branch
 
 
 class ShodanExposure(Collector):
@@ -129,14 +148,17 @@ class ShodanExposure(Collector):
     @classmethod
     def parse(cls, payload) -> list[Observation]:
         fixed = vulnerable = 0
-        for f in payload.get("facets", {}).get("version", []):
+        facets = ((payload or {}).get("facets") or {}).get("version") or []
+        for f in facets:
+            if not isinstance(f, dict) or f.get("count") is None or f.get("value") is None:
+                continue
             verdict = is_fixed(str(f["value"]))
             if verdict is True:
                 fixed += f["count"]
             elif verdict is False:
                 vulnerable += f["count"]
         ts = _hour_now()
-        total = float(payload.get("total", fixed + vulnerable))
+        total = float((payload or {}).get("total") or fixed + vulnerable)
         return [
             Observation(cls.name, "php_hosts_fixed", {}, float(fixed), ts),
             Observation(cls.name, "php_hosts_vulnerable", {}, float(vulnerable), ts),
