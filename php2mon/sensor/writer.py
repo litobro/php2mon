@@ -16,7 +16,12 @@ from php2mon.sensor.hits import HitRecord
 
 log = logging.getLogger(__name__)
 
+class WriterSetupError(Exception):
+    """Pool creation or schema application failed; the rows themselves are fine."""
+
+
 TRANSIENT_ERRORS = (
+    WriterSetupError,
     OSError,
     asyncio.TimeoutError,
     asyncpg.PostgresConnectionError,
@@ -50,6 +55,16 @@ def _clean(s: str | None) -> str | None:
     return s.replace("\x00", "") if isinstance(s, str) else None
 
 
+def _deep_clean(obj):
+    if isinstance(obj, str):
+        return obj.replace("\x00", "")
+    if isinstance(obj, dict):
+        return {_deep_clean(k): _deep_clean(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_deep_clean(v) for v in obj]
+    return obj
+
+
 def hit_row(hit: HitRecord) -> tuple:
     return (
         hit.ts,
@@ -67,7 +82,7 @@ def hit_row(hit: HitRecord) -> tuple:
         hit.sess_len,
         hit.resp_status,
         [_clean(sig) for sig in hit.signatures],
-        json.dumps(hit.to_detail()).replace("\\u0000", "") if hit.detail_kept else None,
+        json.dumps(_deep_clean(hit.to_detail())) if hit.detail_kept else None,
     )
 
 
@@ -147,14 +162,18 @@ class PostgresWriter:
                     return False
                 if not await self._insert_singly(rows):
                     return False
+                self._note_success()
                 continue
             except BaseException:
                 self._buffer.extendleft(reversed(rows))
                 raise
-            if self._consecutive_failures:
-                log.info("database writes recovered after %d failures", self._consecutive_failures)
-                self._consecutive_failures = 0
+            self._note_success()
         return True
+
+    def _note_success(self) -> None:
+        if self._consecutive_failures:
+            log.info("database writes recovered after %d failures", self._consecutive_failures)
+            self._consecutive_failures = 0
 
     async def _insert_singly(self, rows: list[tuple]) -> bool:
         for i, row in enumerate(rows):
@@ -165,6 +184,21 @@ class PostgresWriter:
                     self._buffer.extendleft(reversed(rows[i:]))
                     self._note_failure(exc)
                     return False
+                if row[15] is not None:
+                    try:
+                        await self._insert([row[:15] + (None,)])
+                    except Exception as exc2:
+                        if isinstance(exc2, TRANSIENT_ERRORS):
+                            self._buffer.extendleft(reversed(rows[i:]))
+                            self._note_failure(exc2)
+                            return False
+                        exc = exc2
+                    except BaseException:
+                        self._buffer.extendleft(reversed(rows[i:]))
+                        raise
+                    else:
+                        log.warning("stored hit without detail: %s: %s", row[6], exc)
+                        continue
                 self.rejected += 1
                 log.warning("rejected row (path=%r): %s", row[6], exc)
             except BaseException:
@@ -174,12 +208,15 @@ class PostgresWriter:
 
     async def _insert(self, rows: list[tuple]) -> None:
         if self._pool is None:
-            pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=2)
             try:
-                await apply_schema(pool)
-            except BaseException:
-                await pool.close()
-                raise
+                pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=2)
+                try:
+                    await apply_schema(pool)
+                except BaseException:
+                    await pool.close()
+                    raise
+            except Exception as exc:
+                raise WriterSetupError(str(exc)) from exc
             self._pool = pool
         async with self._pool.acquire() as conn:
             await conn.executemany(INSERT_SQL, rows)

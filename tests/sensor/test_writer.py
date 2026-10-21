@@ -1,11 +1,12 @@
 import asyncio
+import json
 import logging
 
 import asyncpg
 import pytest
 
 from php2mon.sensor.hits import build_hit
-from php2mon.sensor.writer import MemorySink, PostgresWriter, hit_row
+from php2mon.sensor.writer import MemorySink, PostgresWriter, WriterSetupError, hit_row
 
 
 def _hit(path="/", ip="203.0.113.1"):
@@ -182,7 +183,7 @@ async def test_schema_failure_leaves_no_pool(monkeypatch):
     monkeypatch.setattr(asyncpg, "create_pool", fake_create_pool)
     monkeypatch.setattr("php2mon.sensor.writer.apply_schema", bad_schema)
     w = PostgresWriter("postgresql://x")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(WriterSetupError):
         await w._insert([])
     assert w._pool is None
     assert closed == [True]
@@ -216,3 +217,52 @@ async def test_start_twice_is_idempotent():
     await w.start()
     assert w._task is first
     await w.stop()
+
+
+def test_literal_backslash_u0000_survives():
+    h = build_hit(src_ip="203.0.113.1", method="GET", path="/", headers=[("X-T", "x\\u0000y")], body_bytes=0, multipart_parts=0, body_head=b"abc\\u0000")
+    detail = json.loads(hit_row(h)[15])
+    assert detail["body_head"] == "abc\\u0000"
+    assert detail["headers"]["x-t"] == "x\\u0000y"
+
+
+async def test_setup_failure_requeues(monkeypatch):
+    async def bad_pool(*a, **kw):
+        raise RuntimeError("password authentication failed")
+
+    monkeypatch.setattr(asyncpg, "create_pool", bad_pool)
+    w = PostgresWriter("postgresql://x")
+    await _put_paths(w, ["/a", "/b", "/c"])
+    assert await w.flush() is False
+    assert len(w._buffer) == 3
+    assert w.rejected == 0
+    assert w._pool is None
+
+
+async def test_poison_detail_falls_back_to_no_detail():
+    async def impl(w, rows):
+        if any(isinstance(r[15], str) and "poison" in r[15] for r in rows):
+            raise ValueError("bad detail")
+        w.inserted.extend(rows)
+
+    w = FlakyWriter(impl)
+    h = build_hit(src_ip="203.0.113.1", method="GET", path="/x", headers=[("Host", "x")], body_bytes=0, multipart_parts=0, body_head=b"poison")
+    h.resp_status = 200
+    await w.put(h)
+    assert await w.flush() is True
+    assert len(w.inserted) == 1
+    assert w.inserted[0][15] is None
+    assert w.rejected == 0
+
+
+async def test_per_row_path_resets_failure_counter():
+    async def impl(w, rows):
+        if any(r[6] == "/bad" for r in rows):
+            raise ValueError("bad row")
+        w.inserted.extend(rows)
+
+    w = FlakyWriter(impl)
+    await _put_paths(w, ["/a", "/bad"])
+    w._consecutive_failures = 5
+    assert await w.flush() is True
+    assert w._consecutive_failures == 0
