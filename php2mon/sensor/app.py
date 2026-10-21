@@ -73,6 +73,7 @@ def create_app(
                 src_ip=src_ip,
                 method=request.method,
                 path=request.url.path,
+                query=request.scope["query_string"].decode("latin-1"),
                 headers=request.headers.items(),
                 body_bytes=total,
                 multipart_parts=counter.parts if counter is not None else 0,

@@ -102,3 +102,26 @@ def test_sess_len_measured_before_header_truncation():
     )
     assert hit.sess_len == 5000
     assert len(hit.headers["cookie"]) == HEADER_VALUE_CAP
+
+
+def test_query_is_capped_and_in_detail():
+    hit = build_hit(
+        src_ip="203.0.113.9",
+        method="GET",
+        path="/index.php",
+        query="s=" + "q" * 5000,
+        headers=[],
+        body_bytes=0,
+        multipart_parts=0,
+        body_head=b"",
+    )
+    assert len(hit.query) == HEADER_VALUE_CAP
+    assert hit.to_detail()["query"] == hit.query
+
+
+def test_query_defaults_to_empty():
+    hit = build_hit(
+        src_ip="203.0.113.9", method="GET", path="/", headers=[], body_bytes=0, multipart_parts=0, body_head=b""
+    )
+    assert hit.query == ""
+    assert hit.to_detail()["query"] == ""

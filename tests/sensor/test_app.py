@@ -133,3 +133,12 @@ async def test_slow_body_times_out_and_logs(monkeypatch, caplog):
     assert r.status_code == 200
     assert sink.hits[0].body_bytes == 50
     assert "timed out" in caplog.text
+
+
+async def test_query_string_is_kept_and_page_lookup_is_path_only(persona):
+    sink = MemorySink()
+    async with _client(create_app(EXAMPLE, sink)) as c:
+        r = await c.get("/index.php?s=/x&y=1")
+    assert r.status_code == 200
+    assert sink.hits[0].path == "/index.php"
+    assert sink.hits[0].query == "s=/x&y=1"

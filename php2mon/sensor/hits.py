@@ -34,9 +34,11 @@ class HitRecord:
     asn: int | None = None
     asn_name: str | None = None
     detail_kept: bool = True
+    query: str = ""
 
     def to_detail(self) -> dict:
         return {
+            "query": self.query,
             "headers": self.headers,
             "body_head": self.body_head.decode("utf-8", "replace"),
         }
@@ -83,6 +85,7 @@ def build_hit(
     body_bytes: int,
     multipart_parts: int,
     body_head: bytes,
+    query: str = "",
     session_cookie: str = "PHPSESSID",
     now: datetime | None = None,
 ) -> HitRecord:
@@ -108,4 +111,5 @@ def build_hit(
         header_names=names,
         headers=hdrs,
         body_head=body_head[:BODY_HEAD_CAP],
+        query=query[:HEADER_VALUE_CAP],
     )
