@@ -24,9 +24,11 @@ services:
       STATE_DIR: /state
       DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
       PORT: "8080"
+      GEOIP_DIR: /geoip
     volumes:
       - "${CONFIG_DIR:-./config.example}:/config:ro"
       - sensorstate:/state
+      - geoip:/geoip:ro
     ports:
       - "80:8080"
     depends_on:
@@ -48,8 +50,27 @@ services:
       - "${CONFIG_DIR:-./config.example}:/config:ro"
       - tlsdata:/tls
       - sensorstate:/state
+      - geoip:/geoip:ro
     ports:
       - "443:8443"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector:
+    image: ghcr.io/litobro/php2mon-collector:latest
+    build:
+      context: .
+      dockerfile: docker/collector.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
+      CONTACT_EMAIL: "${CONTACT_EMAIL:-}"
+      CF_RADAR_TOKEN: "${CF_RADAR_TOKEN:-}"
+      SHODAN_API_KEY: "${SHODAN_API_KEY:-}"
+      GEOIP_DIR: /geoip
+    volumes:
+      - geoip:/geoip
     depends_on:
       db:
         condition: service_healthy
@@ -59,3 +80,4 @@ volumes:
   pgdata:
   tlsdata:
   sensorstate:
+  geoip:

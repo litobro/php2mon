@@ -207,3 +207,20 @@ async def test_handler_error_still_records_hit(monkeypatch):
     assert hit.resp_status == 500
     assert "handler-error" in hit.signatures
     assert hit.path == "/" and hit.query == "a=1"
+
+
+async def test_handler_reopens_geo_on_each_request(persona):
+    class FakeGeo:
+        reopened = 0
+
+        def maybe_reopen(self):
+            self.reopened += 1
+            return False
+
+        def enrich(self, hit):
+            pass
+
+    geo = FakeGeo()
+    async with _client(create_app(EXAMPLE, MemorySink(), geo=geo)) as c:
+        await c.get("/")
+    assert geo.reopened == 1

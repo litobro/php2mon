@@ -33,7 +33,7 @@ def main() -> None:
         config_dir,
         writer,
         state_dir=state_dir,
-        geo=GeoLookup.from_dir(config_dir / "geoip"),
+        geo=GeoLookup.from_dir(Path(os.environ.get("GEOIP_DIR") or str(config_dir / "geoip"))),
         limiter=RateLimiter(int(os.environ.get("RATE_PER_MINUTE", "120"))),
         body_cap=int(os.environ.get("BODY_CAP", str(DEFAULT_BODY_CAP))),
         body_timeout=float(os.environ.get("BODY_TIMEOUT", "30")),

@@ -71,8 +71,8 @@ class GeoRefresh(Collector):
 async def backfill(pool, geo: GeoLookup, *, batch: int = 500) -> int:
     """Fill country/ASN on sensor_hits rows where both are NULL. Idempotent.
 
-    Always re-queries from the start: filled rows stop matching. Rows the lookup
-    cannot resolve are skipped by id so the loop terminates.
+    Walks forward by id cursor (id > last seen), so rows the lookup cannot
+    resolve are passed over and the loop terminates.
     """
     updated = 0
     last_id = 0

@@ -111,6 +111,8 @@ def create_app(
         total = 0
         try:
             watcher.maybe_reload()
+            if geo is not None:
+                geo.maybe_reopen()
             persona, evaluator = watcher.persona, watcher.evaluator
             counter = MultipartCounter.from_content_type(request.headers.get("content-type"))
             head = b""
