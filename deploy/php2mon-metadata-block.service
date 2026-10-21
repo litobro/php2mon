@@ -1,0 +1,12 @@
+[Unit]
+Description=php2mon: block containers from the cloud metadata service
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=-/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254 -j DROP 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254 -j DROP'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

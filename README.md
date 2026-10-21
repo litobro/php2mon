@@ -11,7 +11,7 @@ Code, schemas, and dashboard layout are public. The decoy's persona, detection
 signatures, and deployment details are kept in a separate private repository
 and mounted at runtime; `config.example/` shows the file shapes.
 
-Status: design complete, implementation starting.
+Status: Plan 1 (decoy sensor) deployed; Plan 2 (collectors and dashboard) next.
 
 Data credits: SANS Internet Storm Center (CC BY-NC-SA 4.0), Cloudflare Radar
 (CC BY-NC 4.0), DB-IP lite (CC BY 4.0).

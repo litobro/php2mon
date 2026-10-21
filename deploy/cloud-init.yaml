@@ -29,7 +29,8 @@ runcmd:
   - git clone -q git@github.com:litobro/php2mon-private.git /opt/php2mon-private
   - git clone -q https://github.com/litobro/php2mon.git /opt/php2mon
   - ln -sf /opt/php2mon-private/config/.env /opt/php2mon/.env
-  - cp /opt/php2mon/deploy/php2mon-sync.service /opt/php2mon/deploy/php2mon-sync.timer /etc/systemd/system/
+  - cp /opt/php2mon/deploy/php2mon-sync.service /opt/php2mon/deploy/php2mon-sync.timer /opt/php2mon/deploy/php2mon-metadata-block.service /etc/systemd/system/
   - systemctl daemon-reload
+  - systemctl enable --now php2mon-metadata-block.service
   - systemctl enable --now php2mon-sync.timer
   - systemctl start php2mon-sync.service
