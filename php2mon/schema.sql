@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS feed_observations (
     value       double precision NOT NULL
 );
 CREATE INDEX IF NOT EXISTS feed_observations_idx ON feed_observations (source, metric, ts);
+CREATE UNIQUE INDEX IF NOT EXISTS feed_observations_unique
+    ON feed_observations (source, metric, md5(dimensions::text), ts);
 
 CREATE TABLE IF NOT EXISTS feed_raw (
     id      bigserial PRIMARY KEY,
