@@ -20,6 +20,7 @@ class Persona(BaseModel):
 
     server: str
     x_powered_by: str
+    server_name: str = "localhost"
     session_cookie: str = "PHPSESSID"
     pages: dict[str, str]
     not_found: str

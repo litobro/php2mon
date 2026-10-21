@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import secrets
 from dataclasses import dataclass
 
@@ -23,8 +24,13 @@ class Reply:
     body: bytes
 
 
+# Debian's production php.ini: session.sid_length 26, sid_bits_per_character 5.
+SID_ALPHABET = "0123456789abcdefghijklmnopqrstuv"
+SID_LENGTH = 26
+
+
 def new_session_id() -> str:
-    return secrets.token_hex(16)
+    return "".join(secrets.choice(SID_ALPHABET) for _ in range(SID_LENGTH))
 
 
 def memory_trigger_fires(persona: Persona, hit: HitRecord) -> bool:
@@ -36,7 +42,17 @@ def memory_trigger_fires(persona: Persona, hit: HitRecord) -> bool:
     return True
 
 
-def respond(persona: Persona, hit: HitRecord, *, has_session: bool) -> Reply:
+def respond(persona: Persona, hit: HitRecord, *, has_session: bool, host: str, port: int) -> Reply:
+    page = persona.pages.get(hit.path)
+    if page is None:
+        body = persona.not_found.replace("{host}", host).replace("{port}", str(port))
+        headers = {"Server": persona.server, "Content-Type": "text/html; charset=iso-8859-1"}
+        return Reply(404, headers, body.encode())
+    runs_php = hit.path.endswith(".php") or hit.path.endswith("/")
+    if not runs_php:
+        content_type = mimetypes.guess_type(hit.path)[0] or "application/octet-stream"
+        headers = {"Server": persona.server, "Accept-Ranges": "bytes", "Content-Type": content_type}
+        return Reply(200, headers, page.encode())
     headers = {
         "Server": persona.server,
         "X-Powered-By": persona.x_powered_by,
@@ -45,10 +61,6 @@ def respond(persona: Persona, hit: HitRecord, *, has_session: bool) -> Reply:
     if memory_trigger_fires(persona, hit):
         body = persona.fatal.replace("{bytes}", str(hit.body_bytes))
         return Reply(500, headers, body.encode())
-    page = persona.pages.get(hit.path)
-    if page is None:
-        headers["Content-Type"] = "text/html; charset=iso-8859-1"
-        return Reply(404, headers, persona.not_found.encode())
     headers.update(CACHE_HEADERS)
     if not has_session:
         headers["Set-Cookie"] = f"{persona.session_cookie}={new_session_id()}; path=/"

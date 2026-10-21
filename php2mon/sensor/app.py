@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from pathlib import Path
 
@@ -32,6 +33,17 @@ class _AnyMethod:
     async def __call__(self, scope, receive, send) -> None:
         response = await self._handler(Request(scope, receive))
         await response(scope, receive, send)
+
+
+def host_and_port(request: Request, default_host: str) -> tuple[str, int]:
+    """The name and port Apache would print in its error pages, taken from the Host header."""
+    raw = request.headers.get("host", "")
+    name, sep, port = raw.rpartition(":")
+    if sep and port.isdigit():
+        host, port_num = name, int(port)
+    else:
+        host, port_num = raw, 443 if request.url.scheme == "https" else 80
+    return html.escape(host) if host else html.escape(default_host), port_num
 
 
 def create_app(
@@ -80,7 +92,8 @@ def create_app(
                 body_head=head,
                 session_cookie=persona.session_cookie,
             )
-            reply = respond(persona, hit, has_session=hit.sess_len > 0)
+            host, port = host_and_port(request, persona.server_name)
+            reply = respond(persona, hit, has_session=hit.sess_len > 0, host=host, port=port)
             hit.resp_status = reply.status
             hit.signatures = evaluator.evaluate(hit)
             if geo is not None:

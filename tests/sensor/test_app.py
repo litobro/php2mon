@@ -142,3 +142,31 @@ async def test_query_string_is_kept_and_page_lookup_is_path_only(persona):
     assert r.status_code == 200
     assert sink.hits[0].path == "/index.php"
     assert sink.hits[0].query == "s=/x&y=1"
+
+
+async def test_not_found_renders_escaped_host_and_port():
+    sink = MemorySink()
+    async with _client(create_app(EXAMPLE, sink)) as c:
+        r = await c.get("/nope", headers={"Host": "<x>:8443"})
+    assert r.status_code == 404
+    assert "&lt;x&gt;" in r.text and "<x>" not in r.text
+    assert "Port 8443" in r.text
+
+
+async def test_not_found_port_defaults_from_scheme():
+    sink = MemorySink()
+    transport = httpx.ASGITransport(app=create_app(EXAMPLE, sink), client=("203.0.113.7", 4444))
+    async with httpx.AsyncClient(transport=transport, base_url="https://decoy.test") as c:
+        r = await c.get("/nope")
+    assert "decoy.test Port 443" in r.text
+    async with _client(create_app(EXAMPLE, sink)) as c:
+        r = await c.get("/nope")
+    assert "decoy.test Port 80" in r.text
+
+
+async def test_large_multipart_to_missing_path_is_404(persona):
+    sink = MemorySink()
+    body = b"--b\r\n" + b"A" * (persona.memory_trigger.min_body_bytes + 10)
+    async with _client(create_app(EXAMPLE, sink)) as c:
+        r = await c.post("/nope", content=body, headers={"Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 404

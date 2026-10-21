@@ -30,13 +30,13 @@ def _hit(**kw):
 
 def test_known_page_returns_200_with_persona_headers():
     persona = load_persona(EXAMPLE)
-    reply = respond(persona, _hit(), has_session=False)
+    reply = respond(persona, _hit(), has_session=False, host="decoy.test", port=80)
     assert reply.status == 200
     assert reply.headers["Server"] == persona.server
     assert reply.headers["X-Powered-By"] == persona.x_powered_by
     assert reply.headers["Content-Type"] == "text/html; charset=UTF-8"
     cookie = reply.headers["Set-Cookie"]
-    assert re.fullmatch(r"PHPSESSID=[0-9a-f]{32}; path=/", cookie)
+    assert re.fullmatch(r"^PHPSESSID=[0-9a-v]{26}; path=/$", cookie)
     assert "HttpOnly" not in cookie
     for name, value in CACHE_HEADERS.items():
         assert reply.headers[name] == value
@@ -45,7 +45,7 @@ def test_known_page_returns_200_with_persona_headers():
 
 def test_existing_session_gets_no_cookie():
     persona = load_persona(EXAMPLE)
-    reply = respond(persona, _hit(), has_session=True)
+    reply = respond(persona, _hit(), has_session=True, host="decoy.test", port=80)
     assert "Set-Cookie" not in reply.headers
     for name, value in CACHE_HEADERS.items():
         assert reply.headers[name] == value
@@ -53,12 +53,10 @@ def test_existing_session_gets_no_cookie():
 
 def test_unknown_page_returns_404():
     persona = load_persona(EXAMPLE)
-    reply = respond(persona, _hit(path="/nope.php"), has_session=False)
+    reply = respond(persona, _hit(path="/nope.php"), has_session=False, host="decoy.test", port=80)
     assert reply.status == 404
-    assert reply.body == persona.not_found.encode()
-    assert "Set-Cookie" not in reply.headers
-    assert "Cache-Control" not in reply.headers
-    assert reply.headers["Content-Type"] == "text/html; charset=iso-8859-1"
+    assert reply.body == persona.not_found.replace("{host}", "decoy.test").replace("{port}", "80").encode()
+    assert reply.headers == {"Server": persona.server, "Content-Type": "text/html; charset=iso-8859-1"}
 
 
 def test_large_multipart_triggers_fatal_500():
@@ -70,11 +68,12 @@ def test_large_multipart_triggers_fatal_500():
         multipart_parts=1,
     )
     assert memory_trigger_fires(persona, hit)
-    reply = respond(persona, hit, has_session=False)
+    reply = respond(persona, hit, has_session=False, host="decoy.test", port=80)
     assert reply.status == 500
     assert str(hit.body_bytes).encode() in reply.body
-    assert "Set-Cookie" not in reply.headers
-    assert "Cache-Control" not in reply.headers
+    assert set(reply.headers) == {"Server", "X-Powered-By", "Content-Type"}
+    assert reply.headers["X-Powered-By"] == persona.x_powered_by
+    assert reply.headers["Content-Type"] == "text/html; charset=UTF-8"
 
 
 def test_large_non_multipart_does_not_trigger_when_multipart_only():
@@ -85,3 +84,58 @@ def test_large_non_multipart_does_not_trigger_when_multipart_only():
         body_bytes=persona.memory_trigger.min_body_bytes * 2,
     )
     assert not memory_trigger_fires(persona, hit)
+
+
+def _static_persona():
+    persona = load_persona(EXAMPLE)
+    pages = dict(persona.pages)
+    pages["/style.css"] = "body{}"
+    pages["/readme.html"] = "<html></html>"
+    pages["/blob.zzunknown"] = "?"
+    return persona.model_copy(update={"pages": pages})
+
+
+def _big_multipart(persona, path):
+    return _hit(
+        method="POST",
+        path=path,
+        headers=[("Content-Type", "multipart/form-data; boundary=x")],
+        body_bytes=persona.memory_trigger.min_body_bytes * 2,
+        multipart_parts=10,
+    )
+
+
+def test_static_page_is_served_without_php_headers():
+    persona = _static_persona()
+    reply = respond(persona, _hit(path="/style.css"), has_session=False, host="decoy.test", port=80)
+    assert reply.status == 200
+    assert reply.headers == {"Server": persona.server, "Accept-Ranges": "bytes", "Content-Type": "text/css"}
+    assert reply.body == b"body{}"
+
+
+def test_static_content_types():
+    persona = _static_persona()
+    html = respond(persona, _hit(path="/readme.html"), has_session=False, host="h", port=80)
+    assert html.headers["Content-Type"] == "text/html"
+    other = respond(persona, _hit(path="/blob.zzunknown"), has_session=False, host="h", port=80)
+    assert other.headers["Content-Type"] == "application/octet-stream"
+
+
+def test_large_multipart_to_non_php_paths_does_not_trigger_fatal():
+    persona = _static_persona()
+    missing = respond(persona, _big_multipart(persona, "/nope"), has_session=False, host="h", port=80)
+    assert missing.status == 404
+    static = respond(persona, _big_multipart(persona, "/style.css"), has_session=False, host="h", port=80)
+    assert static.status == 200
+    php = respond(persona, _big_multipart(persona, "/index.php"), has_session=False, host="h", port=80)
+    assert php.status == 500
+
+
+def test_not_found_substitutes_host_and_port():
+    persona = load_persona(EXAMPLE).model_copy(update={"not_found": "Server at {host} Port {port}"})
+    reply = respond(persona, _hit(path="/nope"), has_session=False, host="&lt;x&gt;", port=8443)
+    assert reply.body == b"Server at &lt;x&gt; Port 8443"
+
+
+def test_persona_server_name_defaults_to_localhost():
+    assert load_persona(EXAMPLE).server_name == "localhost"
