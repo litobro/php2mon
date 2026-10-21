@@ -201,7 +201,7 @@ class PostgresWriter:
                         self._buffer.extendleft(reversed(rows[i:]))
                         raise
                     else:
-                        log.warning("stored hit without detail: %s: %s", row[6], exc)
+                        log.warning("stored hit without detail (path=%r): %s", row[6], exc)
                         continue
                 self.rejected += 1
                 log.warning("rejected row (path=%r): %s", row[6], exc)

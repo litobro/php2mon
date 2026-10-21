@@ -301,3 +301,19 @@ async def test_start_survives_db_down(monkeypatch):
     await w.start()
     assert w._pool is None
     await w.stop()
+
+
+async def test_logged_paths_are_repr_escaped(caplog):
+    async def impl(w, rows):
+        if any(isinstance(r[15], str) and "poison" in r[15] for r in rows):
+            raise ValueError("bad detail")
+        w.inserted.extend(rows)
+
+    w = FlakyWriter(impl)
+    h = build_hit(src_ip="203.0.113.1", method="GET", path="/x\nFAKE LOG LINE", headers=[], body_bytes=0, multipart_parts=0, body_head=b"poison")
+    await w.put(h)
+    with caplog.at_level(logging.WARNING, logger="php2mon.sensor.writer"):
+        assert await w.flush() is True
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("'/x\\nFAKE LOG LINE'" in m for m in messages)
+    assert not any("\n" in m for m in messages)
