@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from php2mon.feeds.base import Collector, Observation
 from php2mon.feeds.client import fetch_json, store_raw
@@ -38,25 +38,34 @@ async def _fetch(ctx, source: str, url: str, **kw):
 class IscWebHoneypot(Collector):
     name = "isc"
     interval_seconds = 3600
-    URL = "https://isc.sans.edu/api/webhoneypotsummary/{day}?json"
+    # The webhoneypotsummary endpoint now returns the API index page, so use the
+    # working dailysummary endpoint (records/sources/targets per day) as the ISC
+    # attack-volume signal. It takes a start/end date range and ?json.
+    URL = "https://isc.sans.edu/api/dailysummary/{start}/{end}?json"
 
     @classmethod
     def parse(cls, payload) -> list[Observation]:
-        summary = (payload or {}).get("webhoneypotsummary") or {}
-        if isinstance(summary, list):
-            summary = summary[0] if summary else {}
-        ts = _hour_now()
-        return [
-            Observation(cls.name, f"isc_{k}", {}, float(summary[k]), ts)
-            for k in ("reports", "targets", "sources") if k in summary
-        ]
+        rows = payload if isinstance(payload, list) else []
+        obs: list[Observation] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                ts = datetime.fromisoformat(row["date"]).replace(tzinfo=UTC)
+            except (KeyError, ValueError, TypeError):
+                ts = _hour_now()
+            for k in ("records", "targets", "sources"):
+                if row.get(k) is not None:
+                    obs.append(Observation(cls.name, f"isc_{k}", {}, float(row[k]), ts))
+        return obs
 
     async def collect(self, ctx) -> list[Observation]:
         contact = _setting(ctx, "contact_email")
         if not contact:
             raise RuntimeError("isc: CONTACT_EMAIL not set")
-        day = datetime.now(UTC).date().isoformat()
-        payload = await _fetch(ctx, self.name, self.URL.format(day=day),
+        today = datetime.now(UTC).date()
+        start = (today - timedelta(days=1)).isoformat()
+        payload = await _fetch(ctx, self.name, self.URL.format(start=start, end=today.isoformat()),
                                headers={"User-Agent": f"php2mon ({contact})"})
         return self.parse(payload)
 

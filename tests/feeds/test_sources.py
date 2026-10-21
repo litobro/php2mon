@@ -17,8 +17,9 @@ def test_kev_flags_target_cves_only():
 
 def test_isc_summary_three_metrics():
     obs = IscWebHoneypot.parse(_load("isc.json"))
-    assert {o.metric for o in obs} == {"isc_reports", "isc_targets", "isc_sources"}
-    assert next(o.value for o in obs if o.metric == "isc_reports") == 4200.0
+    assert {o.metric for o in obs} == {"isc_records", "isc_targets", "isc_sources"}
+    assert next(o.value for o in obs if o.metric == "isc_records") == 25948539.0
+    assert all(o.ts.year == 2026 and o.ts.month == 10 and o.ts.day == 20 for o in obs)
 
 def test_shodan_splits_fixed_vs_vulnerable():
     obs = ShodanExposure.parse(_load("shodan.json"))
@@ -81,10 +82,11 @@ def test_radar_empty_and_null_values():
 
 
 def test_isc_list_shape_and_empty():
-    p = {"webhoneypotsummary": [{"reports": "1", "targets": "2", "sources": "3"}]}
+    p = [{"date": "2026-10-20", "records": "1", "targets": "2", "sources": "3"}]
     assert len(IscWebHoneypot.parse(p)) == 3
-    assert IscWebHoneypot.parse({"webhoneypotsummary": []}) == []
+    assert IscWebHoneypot.parse([]) == []
     assert IscWebHoneypot.parse({}) == []
+    assert IscWebHoneypot.parse([{"date": "2026-10-20"}]) == []
 
 
 def test_disabled_without_credentials(monkeypatch):
