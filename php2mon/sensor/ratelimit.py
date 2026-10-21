@@ -15,9 +15,11 @@ def _key(ip: str) -> str:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return ip
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        return str(addr.ipv4_mapped)
     if addr.version == 4:
         return ip
-    return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ipaddress.ip_network((addr, 64), strict=False))
 
 
 class RateLimiter:

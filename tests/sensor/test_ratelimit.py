@@ -46,3 +46,15 @@ def test_prune_runs_via_allow():
     now[0] = 120.0
     rl.allow("fresh")
     assert rl._buckets.keys() == {"fresh"}
+
+
+def test_ipv4_mapped_keys_as_ipv4():
+    rl = RateLimiter(per_minute=1, clock=lambda: 0.0)
+    assert rl.allow("::ffff:1.2.3.4") is True
+    assert rl.allow("1.2.3.4") is False
+    assert rl.allow("::ffff:1.2.3.5") is True
+
+
+def test_scoped_ipv6_does_not_raise():
+    rl = RateLimiter(per_minute=1, clock=lambda: 0.0)
+    assert rl.allow("fe80::1%eth0") is True
