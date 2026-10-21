@@ -21,10 +21,12 @@ services:
       dockerfile: docker/sensor.Dockerfile
     environment: &sensor-env
       CONFIG_DIR: /config
+      STATE_DIR: /state
       DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
       PORT: "8080"
     volumes:
       - "${CONFIG_DIR:-./config.example}:/config:ro"
+      - sensorstate:/state
     ports:
       - "80:8080"
     depends_on:
@@ -45,6 +47,7 @@ services:
     volumes:
       - "${CONFIG_DIR:-./config.example}:/config:ro"
       - tlsdata:/tls
+      - sensorstate:/state
     ports:
       - "443:8443"
     depends_on:
@@ -55,3 +58,4 @@ services:
 volumes:
   pgdata:
   tlsdata:
+  sensorstate:

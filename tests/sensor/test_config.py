@@ -89,3 +89,57 @@ def test_maybe_reload_survives_unreadable_file(cfg, caplog, monkeypatch):
     with caplog.at_level(logging.ERROR):
         w.maybe_reload()
     assert "denied" in caplog.text
+
+
+def test_good_load_writes_last_good_copies(cfg, tmp_path_factory):
+    state = tmp_path_factory.mktemp("state")
+    ConfigWatcher(cfg, state_dir=state)
+    for name in ("persona.yaml", "signatures.yaml"):
+        assert (state / "last-good" / name).read_bytes() == (cfg / name).read_bytes()
+
+
+def test_reload_refreshes_last_good_copies(cfg, tmp_path_factory):
+    state = tmp_path_factory.mktemp("state")
+    w = ConfigWatcher(cfg, state_dir=state, min_interval=0, clock=lambda: 0.0)
+    text = (cfg / "persona.yaml").read_text().replace(f'server: "{w.persona.server}"', 'server: "nginx"')
+    (cfg / "persona.yaml").write_text(text)
+    _touch_newer(cfg / "persona.yaml")
+    assert w.reload() is True
+    assert (state / "last-good" / "persona.yaml").read_text() == text
+
+
+def test_invalid_config_at_startup_falls_back_to_last_good(cfg, tmp_path_factory, caplog):
+    state = tmp_path_factory.mktemp("state")
+    first = ConfigWatcher(cfg, state_dir=state)
+    good_ids = [r.id for r in first.evaluator._rules]
+    (cfg / "signatures.yaml").write_text("rules:\n  - id: broken\n")
+    with caplog.at_level(logging.ERROR):
+        w = ConfigWatcher(cfg, state_dir=state, min_interval=0, clock=lambda: 0.0)
+    assert [r.id for r in w.evaluator._rules] == good_ids
+    assert "using last good copy" in caplog.text
+    # the broken file must not overwrite the last good copy
+    assert (state / "last-good" / "signatures.yaml").read_bytes() == (EXAMPLE / "signatures.yaml").read_bytes()
+    # a fixed push is still picked up from config_dir
+    shutil.copy(EXAMPLE / "signatures.yaml", cfg / "signatures.yaml")
+    text = (cfg / "persona.yaml").read_text().replace(f'server: "{w.persona.server}"', 'server: "nginx"')
+    (cfg / "persona.yaml").write_text(text)
+    _touch_newer(cfg / "persona.yaml")
+    assert w.reload() is True
+    assert w.persona.server == "nginx"
+
+
+def test_invalid_config_at_startup_without_last_good_raises(cfg, tmp_path_factory):
+    state = tmp_path_factory.mktemp("state")
+    (cfg / "signatures.yaml").write_text("rules:\n  - id: broken\n")
+    with pytest.raises(Exception):
+        ConfigWatcher(cfg, state_dir=state)
+    assert not (state / "last-good" / "signatures.yaml").exists()
+
+
+def test_unwritable_state_dir_only_warns(cfg, tmp_path, caplog):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    with caplog.at_level(logging.WARNING):
+        w = ConfigWatcher(cfg, state_dir=blocker)
+    assert w.persona.server
+    assert any(r.levelno == logging.WARNING for r in caplog.records)

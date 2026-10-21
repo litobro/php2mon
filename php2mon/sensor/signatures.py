@@ -66,8 +66,12 @@ class RuleSet(BaseModel):
         return rules
 
 
+def parse_rules(data: bytes | str) -> RuleSet:
+    return RuleSet.model_validate(yaml.safe_load(data))
+
+
 def load_rules(path: Path) -> RuleSet:
-    return RuleSet.model_validate(yaml.safe_load(path.read_text()))
+    return parse_rules(path.read_text())
 
 
 def _norm_path(path: str) -> str:

@@ -28,5 +28,9 @@ class Persona(BaseModel):
     memory_trigger: MemoryTrigger = Field(default_factory=MemoryTrigger)
 
 
+def parse_persona(data: bytes | str) -> Persona:
+    return Persona.model_validate(yaml.safe_load(data))
+
+
 def load_persona(path: Path) -> Persona:
-    return Persona.model_validate(yaml.safe_load(path.read_text()))
+    return parse_persona(path.read_text())

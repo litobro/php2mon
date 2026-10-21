@@ -18,6 +18,7 @@ from php2mon.sensor.writer import PostgresWriter
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config_dir = Path(os.environ.get("CONFIG_DIR", "/config"))
+    state_dir = Path(os.environ["STATE_DIR"]) if os.environ.get("STATE_DIR") else None
     writer = PostgresWriter(os.environ["DATABASE_URL"])
 
     @contextlib.asynccontextmanager
@@ -31,6 +32,7 @@ def main() -> None:
     app = create_app(
         config_dir,
         writer,
+        state_dir=state_dir,
         geo=GeoLookup.from_dir(config_dir / "geoip"),
         limiter=RateLimiter(int(os.environ.get("RATE_PER_MINUTE", "120"))),
         body_cap=int(os.environ.get("BODY_CAP", str(DEFAULT_BODY_CAP))),

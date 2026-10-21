@@ -79,13 +79,14 @@ def create_app(
     config_dir: Path,
     sink: HitSink,
     *,
+    state_dir: Path | None = None,
     geo: GeoLookup | None = None,
     limiter: RateLimiter | None = None,
     body_cap: int = DEFAULT_BODY_CAP,
     body_timeout: float = 30.0,
     lifespan=None,
 ) -> Starlette:
-    watcher = ConfigWatcher(config_dir)
+    watcher = ConfigWatcher(config_dir, state_dir=state_dir)
 
     async def handle(request: Request) -> Reply:
         try:
