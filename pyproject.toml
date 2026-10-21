@@ -17,6 +17,18 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
+    "pytest-httpx>=0.30",
+]
+
+[project.optional-dependencies]
+collector = [
+    "apscheduler>=3.10,<4",
+    "httpx>=0.28",
+    "pycountry>=24",
+]
+dashboard = [
+    "fastapi>=0.115",
+    "httpx>=0.28",
 ]
 
 [tool.pytest.ini_options]
