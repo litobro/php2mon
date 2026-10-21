@@ -33,3 +33,16 @@ def test_dbinit_missing_password_exits_nonzero(database_url):
     assert r.returncode != 0
     assert "COLLECTOR_DB_PW" in r.stderr
     assert "SENSOR_DB_PW" not in r.stderr
+
+
+async def test_dbinit_seeds_claims_idempotently(database_url, tmp_path):
+    f = tmp_path / "claims.yaml"
+    f.write_text("- {org: Z, claim: c, url: 'https://z', date: 2026-10-21}\n")
+    for _ in range(2):
+        r = _run(database_url, CLAIMS_FILE=str(f), **PWS)
+        assert r.returncode == 0, r.stderr
+    conn = await asyncpg.connect(database_url)
+    try:
+        assert await conn.fetchval("SELECT count(*) FROM claims WHERE org='Z'") == 1
+    finally:
+        await conn.close()

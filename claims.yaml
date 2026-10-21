@@ -1,0 +1,10 @@
+# Hand-edited claims log shown on the dashboard. Loaded by dbinit (replace-all, idempotent).
+# Fields: org, claim, url, date (UTC date).
+- org: Example Vendor
+  claim: "Example claim: customers are fully protected by managed rules."
+  url: https://example.com/advisory
+  date: 2026-10-21
+- org: Example Hosting
+  claim: "Example claim: no exploitation observed in the wild."
+  url: https://example.com/blog/php-update
+  date: 2026-10-21

@@ -10,6 +10,7 @@ import asyncpg
 
 from php2mon.db import apply_schema
 from php2mon.roles import apply_roles
+from php2mon.claims import load_claims
 
 _PW_VARS = ("SENSOR_DB_PW", "COLLECTOR_DB_PW", "DASHBOARD_DB_PW")
 
@@ -24,6 +25,10 @@ async def _run(dsn: str, pws: dict[str, str]) -> None:
             collector_pw=pws["COLLECTOR_DB_PW"],
             dashboard_pw=pws["DASHBOARD_DB_PW"],
         )
+        # Seed claims here (admin connection) so the dashboard role stays SELECT-only.
+        claims_file = os.environ.get("CLAIMS_FILE")
+        if claims_file:
+            await load_claims(pool, claims_file)
     finally:
         await pool.close()
 

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>php2mon</title>
+<style>
+:root{--bg:#0f1419;--fg:#e6e6e6;--mut:#8a94a0;--card:#1a2129;--acc:#ff5d5d;--ok:#4cc38a;--warn:#f0b429}
+@media (prefers-color-scheme: light){:root{--bg:#f6f7f9;--fg:#1b2129;--mut:#5b6672;--card:#fff}}
+*{box-sizing:border-box}body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
+h1{margin:0 0 12px;font-size:1.3rem}h2{margin:0 0 8px;font-size:1rem;color:var(--mut)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.panel{background:var(--card);border-radius:8px;padding:12px;min-width:0}
+.wide{grid-column:1/-1}
+.tiles{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.tile .n{font-size:1.8rem;font-weight:700}.tile .l{color:var(--mut);font-size:.8rem}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #8884}
+td.r,th.r{text-align:right}
+select{background:var(--card);color:var(--fg);border:1px solid #8886;border-radius:4px;padding:2px 4px}
+.stale{color:var(--warn)}.ok{color:var(--ok)}
+canvas{max-width:100%}
+footer{margin-top:16px;color:var(--mut);font-size:.8rem}footer a{color:inherit}
+ul{margin:0;padding-left:18px}
+</style>
+</head>
+<body>
+<h1>php2mon <small id="status"></small></h1>
+<div class="grid">
+  <section class="panel wide"><h2>Headline</h2><div class="tiles" id="tiles"></div></section>
+  <section class="panel wide">
+    <h2>Hits timeline
+      <select id="window"><option value="24h">24h</option><option value="7d">7d</option><option value="30d">30d</option></select>
+    </h2>
+    <canvas id="timeline" height="110"></canvas>
+  </section>
+  <section class="panel"><h2>Top sources (country / ASN)</h2>
+    <table><thead><tr><th>Country</th><th>ASN</th><th class="r">Exploit</th><th class="r">Hits</th></tr></thead><tbody id="sources"></tbody></table>
+  </section>
+  <section class="panel"><h2>Patch adoption (Shodan)</h2><canvas id="adoption" height="160"></canvas></section>
+  <section class="panel wide"><h2>Claims log</h2><ul id="claims"></ul></section>
+</div>
+<footer>
+  Data: <a href="https://isc.sans.edu/">SANS ISC</a> (CC BY-NC-SA 4.0);
+  <a href="https://radar.cloudflare.com/">Cloudflare Radar</a> (CC BY-NC 4.0);
+  IP geolocation by <a href="https://db-ip.com">DB-IP</a> (CC BY 4.0).
+</footer>
+<script src="/static/chart.umd.min.js"></script>
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
