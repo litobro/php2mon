@@ -22,7 +22,7 @@ services:
     environment: &sensor-env
       CONFIG_DIR: /config
       STATE_DIR: /state
-      DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
+      DATABASE_URL: ${SENSOR_DSN:-postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon}
       PORT: "8080"
       GEOIP_DIR: /geoip
     volumes:
@@ -58,13 +58,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # One-shot: applies schema + least-privilege roles as admin. Run deliberately:
+  #   docker compose run --rm dbinit
+  # then set SENSOR_DSN / COLLECTOR_DSN / DASHBOARD_DSN in .env (unset = admin DSN).
+  dbinit:
+    image: ghcr.io/litobro/php2mon-sensor:latest
+    profiles: ["dbinit"]
+    entrypoint: ["python", "-m", "php2mon.dbinit"]
+    environment:
+      DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
+      SENSOR_DB_PW: "${SENSOR_DB_PW:-}"
+      COLLECTOR_DB_PW: "${COLLECTOR_DB_PW:-}"
+      DASHBOARD_DB_PW: "${DASHBOARD_DB_PW:-}"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   collector:
     image: ghcr.io/litobro/php2mon-collector:latest
     build:
       context: .
       dockerfile: docker/collector.Dockerfile
     environment:
-      DATABASE_URL: postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon
+      DATABASE_URL: ${COLLECTOR_DSN:-postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon}
       CONTACT_EMAIL: "${CONTACT_EMAIL:-}"
       CF_RADAR_TOKEN: "${CF_RADAR_TOKEN:-}"
       SHODAN_API_KEY: "${SHODAN_API_KEY:-}"
