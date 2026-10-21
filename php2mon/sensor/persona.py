@@ -5,15 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemoryTrigger(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     min_body_bytes: int = 2 * 1024 * 1024
     multipart_only: bool = True
 
 
 class Persona(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     server: str
     x_powered_by: str
     session_cookie: str = "PHPSESSID"

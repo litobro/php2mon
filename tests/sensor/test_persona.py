@@ -22,3 +22,10 @@ def test_missing_field_rejected(tmp_path):
     bad.write_text("server: Apache\n")
     with pytest.raises(ValidationError):
         load_persona(bad)
+
+
+def test_unknown_key_rejected(tmp_path):
+    bad = tmp_path / "persona.yaml"
+    bad.write_text(EXAMPLE.read_text() + "serverr: nope\n")
+    with pytest.raises(ValidationError):
+        load_persona(bad)
