@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from starlette.applications import Starlette
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.routing import Route
 
@@ -40,6 +41,7 @@ def create_app(
     geo: GeoLookup | None = None,
     limiter: RateLimiter | None = None,
     body_cap: int = DEFAULT_BODY_CAP,
+    body_timeout: float = 30.0,
     lifespan=None,
 ) -> Starlette:
     watcher = ConfigWatcher(config_dir)
@@ -51,17 +53,24 @@ def create_app(
             counter = MultipartCounter.from_content_type(request.headers.get("content-type"))
             total = 0
             head = b""
-            async for chunk in request.stream():
-                total += len(chunk)
-                if len(head) < BODY_HEAD_CAP:
-                    head += chunk[: BODY_HEAD_CAP - len(head)]
-                if counter is not None:
-                    counter.feed(chunk)
-                if total >= body_cap:
-                    total = body_cap
-                    break
+            src_ip = request.client.host if request.client else "0.0.0.0"
+            try:
+                async with asyncio.timeout(body_timeout):
+                    async for chunk in request.stream():
+                        total += len(chunk)
+                        if len(head) < BODY_HEAD_CAP:
+                            head += chunk[: BODY_HEAD_CAP - len(head)]
+                        if counter is not None:
+                            counter.feed(chunk)
+                        if total >= body_cap:
+                            total = body_cap
+                            break
+            except ClientDisconnect:
+                log.info("client %s disconnected after %d body bytes", src_ip, total)
+            except TimeoutError:
+                log.info("body read from %s timed out after %d bytes", src_ip, total)
             hit = build_hit(
-                src_ip=request.client.host if request.client else "0.0.0.0",
+                src_ip=src_ip,
                 method=request.method,
                 path=request.url.path,
                 headers=request.headers.items(),
@@ -78,8 +87,11 @@ def create_app(
             if limiter is not None and not limiter.allow(hit.src_ip):
                 hit.detail_kept = False
             await sink.put(hit)
-            body = b"" if request.method == "HEAD" else reply.body
-            return Response(body, status_code=reply.status, headers=reply.headers)
+            if request.method == "HEAD":
+                headers = dict(reply.headers)
+                headers["Content-Length"] = str(len(reply.body))
+                return Response(b"", status_code=reply.status, headers=headers)
+            return Response(reply.body, status_code=reply.status, headers=reply.headers)
         except Exception:
             log.exception("sensor handler failed")
             persona = watcher.persona

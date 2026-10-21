@@ -1,7 +1,10 @@
+import asyncio
+import logging
 from pathlib import Path
 
 import httpx
 import pytest
+from starlette.requests import ClientDisconnect, Request
 
 from php2mon.sensor.app import create_app
 from php2mon.sensor.persona import load_persona
@@ -80,12 +83,13 @@ async def test_rate_limited_hit_loses_detail_only():
     assert [h.detail_kept for h in sink.hits] == [True, False]
 
 
-async def test_head_request_has_no_body():
+async def test_head_request_has_no_body(persona):
     sink = MemorySink()
     async with _client(create_app(EXAMPLE, sink)) as c:
         r = await c.head("/")
     assert r.status_code == 200
     assert r.content == b""
+    assert r.headers["content-length"] == str(len(persona.pages["/"].encode()))
 
 
 async def test_sink_failure_still_answers(persona, caplog):
@@ -98,3 +102,34 @@ async def test_sink_failure_still_answers(persona, caplog):
     assert r.status_code == 500
     assert r.headers["server"] == persona.server
     assert "sensor handler failed" in caplog.text
+
+
+async def test_client_disconnect_mid_body_logs_partial_hit(monkeypatch, caplog):
+    async def stream(self):
+        yield b"x" * 100
+        raise ClientDisconnect()
+
+    monkeypatch.setattr(Request, "stream", stream)
+    sink = MemorySink()
+    with caplog.at_level(logging.INFO):
+        async with _client(create_app(EXAMPLE, sink)) as c:
+            await c.post("/", content=b"x")
+    assert sink.hits[0].body_bytes == 100
+    assert "sensor handler failed" not in caplog.text
+    assert any("disconnected" in r.message and r.levelno == logging.INFO for r in caplog.records)
+
+
+async def test_slow_body_times_out_and_logs(monkeypatch, caplog):
+    async def stream(self):
+        yield b"y" * 50
+        await asyncio.sleep(5)
+        yield b"z"
+
+    monkeypatch.setattr(Request, "stream", stream)
+    sink = MemorySink()
+    with caplog.at_level(logging.INFO):
+        async with _client(create_app(EXAMPLE, sink, body_timeout=0.05)) as c:
+            r = await c.post("/", content=b"x")
+    assert r.status_code == 200
+    assert sink.hits[0].body_bytes == 50
+    assert "timed out" in caplog.text
