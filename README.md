@@ -11,7 +11,7 @@ Code, schemas, and dashboard layout are public. The decoy's persona, detection
 signatures, and deployment details are kept in a separate private repository
 and mounted at runtime; `config.example/` shows the file shapes.
 
-Status: Plan 1 (decoy sensor) deployed; Plan 2 (collectors and dashboard) next.
+Status: Plan 1 (decoy sensor) deployed; Plan 2 (collectors and dashboard) in progress.
 
 Data credits: SANS Internet Storm Center (CC BY-NC-SA 4.0), Cloudflare Radar
 (CC BY-NC 4.0), DB-IP lite (CC BY 4.0).
@@ -31,9 +31,18 @@ Integration tests that need Postgres run only when `DATABASE_URL` is set.
 The sensor listens on 80 and 443. Point `CONFIG_DIR` in `.env` at a directory
 containing `persona.yaml`, `signatures.yaml`, and optionally `geoip/*.mmdb`.
 
+## Dashboard and tunnel
+
+The `dashboard` service (FastAPI, read-only) publishes no host port, and
+neither does `cloudflared`. The dashboard is reachable only through a
+Cloudflare Tunnel, which dials out, so the only inbound ports on the host are
+the decoy's 80 and 443. Create a tunnel in Cloudflare Zero Trust, route a
+public hostname to `http://dashboard:8000`, set `TUNNEL_TOKEN` in `.env`, and
+enable the tunnel service with `COMPOSE_PROFILES=tunnel` in `.env`.
+
 ## Deployment
 
 `deploy/cloud-init.yaml` provisions an Ubuntu 24.04 host that clones this repo
 and a private config repo, then runs `deploy/sync.sh` every five minutes to
 pull changes and restart what changed. Images are built by CI and published to
-`ghcr.io/litobro/php2mon-sensor`.
+`ghcr.io/litobro/php2mon-sensor`, `-collector`, and `-dashboard`.

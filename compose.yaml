@@ -93,6 +93,31 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Internal only: no published port. Reached solely through cloudflared.
+  dashboard:
+    image: ghcr.io/litobro/php2mon-dashboard:latest
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+    environment:
+      DATABASE_URL: ${DASHBOARD_DSN:-postgresql://php2mon:${POSTGRES_PASSWORD}@db:5432/php2mon}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Outbound-only Cloudflare Tunnel; opens no inbound port. Enable once
+  # TUNNEL_TOKEN is set:  COMPOSE_PROFILES=tunnel  (or --profile tunnel).
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.2
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:-}"
+    depends_on:
+      - dashboard
+    restart: unless-stopped
+
 volumes:
   pgdata:
   tlsdata:
