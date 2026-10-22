@@ -68,6 +68,11 @@ def create_app(dsn: str | None = None, patch_release: datetime = PATCH_RELEASE) 
         hours = queries.window_hours(window)
         return {"window_hours": hours, "rows": await queries.sources(app.state.pool, hours)}
 
+    @app.get("/api/iocs")
+    async def iocs(window: str | None = None):
+        hours = queries.window_hours(window)
+        return {"window_hours": hours, "iocs": await queries.exploit_iocs(app.state.pool, hours)}
+
     @app.get("/api/adoption")
     async def adoption():
         return {"series": await queries.adoption(app.state.pool)}

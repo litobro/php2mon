@@ -106,7 +106,7 @@ def test_window_7d_includes_older(client):
 
 def test_window_param_is_clamped(client):
     for bad in ("", "nonsense", "9999999d", "-5", "0", "999999999999999999999", "24h; DROP TABLE x"):
-        for ep in ("timeline", "sources"):
+        for ep in ("timeline", "sources", "iocs"):
             r = client.get(f"/api/{ep}", params={"window": bad})
             assert r.status_code == 200, (ep, bad)
             assert r.json()["window_hours"] == 24
@@ -121,6 +121,28 @@ def test_sources(client):
     assert rows[("US", 64500)]["exploit_hits"] == 2
     assert rows[("DE", 64501)]["exploit_hits"] == 0
     assert ("CN", 64502) not in rows
+
+
+def test_iocs_surfaces_exploit_source_ips(client):
+    j = client.get("/api/iocs?window=24h").json()
+    assert j["window_hours"] == 24
+    # Only the IP with exploit-signature hits appears; the fixture's recent
+    # hits (mp-large, oom-repeat) share one src_ip, the DE scan-only hit does not qualify it separately.
+    assert len(j["iocs"]) == 1
+    ioc = j["iocs"][0]
+    assert ioc["ip"] == "203.0.113.9"
+    assert ioc["exploit_hits"] == 2          # mp-large + oom-repeat, within 24h
+    assert ioc["total_hits"] == 3            # all three recent hits from this IP
+    assert set(ioc["signatures"]) == {"mp-large", "oom-repeat"}
+    assert ioc["first_seen"] and ioc["last_seen"]
+
+
+def test_iocs_window_includes_older_signature(client):
+    j = client.get("/api/iocs?window=7d").json()
+    ioc = next(r for r in j["iocs"] if r["ip"] == "203.0.113.9")
+    # the 3-day-old sess-repeat hit now falls in-window
+    assert ioc["exploit_hits"] == 3
+    assert "sess-repeat" in ioc["signatures"]
 
 
 def test_adoption(client):

@@ -110,6 +110,59 @@ async def sources(pool, hours: int, limit: int = 25) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def exploit_iocs(pool, hours: int, limit: int = 50) -> list[dict]:
+    """Per-source-IP rollup of exploit-confidence hits — the IoC feed.
+
+    Only IPs with at least one hit matching EXPLOIT_SIGNATURES in the window
+    appear. `exploit_hits`/`first_seen`/`last_seen` count only the matching
+    hits; `total_hits` is everything that IP sent in the window (so a single
+    probe-then-exploit source is visible as such). `signatures` lists just the
+    exploit rules that IP tripped.
+    """
+    async with pool.acquire() as c:
+        rows = await c.fetch(
+            """WITH w AS (
+                   SELECT src_ip, country, asn, asn_name, ts, signatures
+                   FROM sensor_hits
+                   WHERE ts >= now() - make_interval(hours => $2)
+               ),
+               sig AS (
+                   SELECT src_ip, array_agg(DISTINCT s ORDER BY s) AS exploit_sigs
+                   FROM w, unnest(w.signatures) AS s
+                   WHERE s = ANY($1::text[])
+                   GROUP BY src_ip
+               )
+               SELECT host(w.src_ip) AS ip,
+                      max(w.country) AS country,
+                      max(w.asn) AS asn,
+                      max(w.asn_name) AS asn_name,
+                      count(*) FILTER (WHERE w.signatures && $1::text[]) AS exploit_hits,
+                      count(*) AS total_hits,
+                      min(w.ts) FILTER (WHERE w.signatures && $1::text[]) AS first_seen,
+                      max(w.ts) FILTER (WHERE w.signatures && $1::text[]) AS last_seen,
+                      sig.exploit_sigs AS signatures
+               FROM w JOIN sig USING (src_ip)
+               GROUP BY w.src_ip, sig.exploit_sigs
+               ORDER BY last_seen DESC, exploit_hits DESC
+               LIMIT $3""",
+            EXPLOIT_SIGNATURES, hours, limit,
+        )
+    return [
+        {
+            "ip": r["ip"],
+            "country": r["country"],
+            "asn": r["asn"],
+            "asn_name": r["asn_name"],
+            "exploit_hits": r["exploit_hits"],
+            "total_hits": r["total_hits"],
+            "first_seen": r["first_seen"].isoformat() if r["first_seen"] else None,
+            "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
+            "signatures": list(r["signatures"] or []),
+        }
+        for r in rows
+    ]
+
+
 async def adoption(pool) -> list[dict]:
     async with pool.acquire() as c:
         rows = await c.fetch(

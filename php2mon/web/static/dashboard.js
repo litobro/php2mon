@@ -92,6 +92,32 @@ async function sources() {
   $("sources").replaceChildren(...rows);
 }
 
+async function iocs() {
+  const d = await get("/api/iocs?window=" + encodeURIComponent($("window").value));
+  const body = $("iocs");
+  if (!d.iocs.length) {
+    const tr = document.createElement("tr"), td = document.createElement("td");
+    td.colSpan = 7; td.className = "l"; td.textContent = "no exploit-confidence source IPs in window";
+    tr.append(td); body.replaceChildren(tr);
+    return;
+  }
+  const rows = d.iocs.map((r) => {
+    const tr = document.createElement("tr");
+    const cells = [
+      [r.ip || "?"],
+      [r.country || "?"],
+      [(r.asn ?? "?") + (r.asn_name ? " " + r.asn_name : "")],
+      [(r.signatures || []).join(", ")],
+      [r.exploit_hits, "r"],
+      [r.total_hits, "r"],
+      [r.last_seen ? new Date(r.last_seen).toLocaleString() : "?"],
+    ];
+    for (const [v, cls] of cells) { const td = document.createElement("td"); td.textContent = v; if (cls) td.className = cls; tr.append(td); }
+    return tr;
+  });
+  body.replaceChildren(...rows);
+}
+
 async function adoption() {
   const a = await get("/api/adoption");
   draw("adoption", {
@@ -127,8 +153,8 @@ async function status() {
 }
 
 async function refresh() {
-  await Promise.allSettled([headline(), timeline(), sources(), adoption(), claims(), status()]);
+  await Promise.allSettled([headline(), timeline(), sources(), iocs(), adoption(), claims(), status()]);
 }
-$("window").addEventListener("change", () => { timeline(); sources(); });
+$("window").addEventListener("change", () => { timeline(); sources(); iocs(); });
 refresh();
 setInterval(refresh, 60000);
