@@ -6,3 +6,6 @@ __pycache__/
 .venv/
 *.egg-info/
 dist/
+
+# Impeccable design workspace (briefs, review screenshots, build scratch)
+.impeccable/
