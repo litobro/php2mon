@@ -7,14 +7,16 @@ writes. The `claims` table is seeded from claims.yaml by `load_claims`, which
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncpg
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from php2mon.claims import load_claims  # noqa: F401  (re-exported)
@@ -27,6 +29,26 @@ EMBARGO_END: datetime | None = None
 CF_RULES_DEPLOYED: datetime | None = None
 
 STATIC_DIR = Path(__file__).with_name("static")
+
+# Reverse proxies / CDNs (Cloudflare) cache /static/*.js and *.woff2 by
+# extension and will serve a stale asset across a deploy. index.html is served
+# fresh, so stamp each local asset URL in it with a short content hash: a
+# changed file yields a new URL, which is a guaranteed cache miss. Zero upkeep.
+_ASSET_REF = re.compile(r'/static/([A-Za-z0-9_./-]+?\.(?:js|css|woff2|png|svg))')
+
+
+def _versioned_index_html() -> str:
+    html = (STATIC_DIR / "index.html").read_text()
+
+    def stamp(m: re.Match[str]) -> str:
+        rel = m.group(1)
+        try:
+            digest = hashlib.md5((STATIC_DIR / rel).read_bytes()).hexdigest()[:8]
+        except OSError:
+            return m.group(0)
+        return f"/static/{rel}?v={digest}"
+
+    return _ASSET_REF.sub(stamp, html)
 
 
 def create_app(dsn: str | None = None, patch_release: datetime = PATCH_RELEASE) -> FastAPI:
@@ -85,9 +107,13 @@ def create_app(dsn: str | None = None, patch_release: datetime = PATCH_RELEASE) 
     async def status():
         return {"collectors": await queries.status(app.state.pool)}
 
+    index_html = _versioned_index_html()
+
     @app.get("/", include_in_schema=False)
     async def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        # no-store keeps the CDN/browser from caching the page, so updated
+        # asset hashes are always seen on the next load.
+        return HTMLResponse(index_html, headers={"Cache-Control": "no-store"})
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
